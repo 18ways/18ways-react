@@ -1,0 +1,228 @@
+// @vitest-environment node
+import React from 'react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { renderToPipeableStream } from 'react-dom/server';
+import { Writable } from 'node:stream';
+import { Ways, T } from '../index';
+import { fetchSeed, fetchTranslations, resetServerInMemoryTranslations } from '@18ways/core/common';
+
+vi.mock('@18ways/core/common', async () => {
+  const actual = await vi.importActual('@18ways/core/common');
+  return {
+    ...actual,
+    fetchSeed: vi.fn(),
+    fetchTranslations: vi.fn(),
+    generateHashId: vi.fn((x) => JSON.stringify(x)),
+  };
+});
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+};
+
+const extractInjectedTranslationsPayload = (html: string): Record<string, unknown> => {
+  const match = html.match(
+    /const next = (.*?);\s+const target = window\.__18WAYS_IN_MEMORY_TRANSLATIONS__/s
+  );
+  if (!match?.[1]) {
+    throw new Error('Could not find injected translations payload in SSR HTML');
+  }
+  return JSON.parse(match[1]) as Record<string, unknown>;
+};
+
+describe('WaysRoot - Seed gating', () => {
+  beforeEach(() => {
+    resetServerInMemoryTranslations();
+    vi.clearAllMocks();
+  });
+
+  const renderServer = async (node: React.ReactElement): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      let html = '';
+      const sink = new Writable({
+        write(chunk, _encoding, callback) {
+          html += chunk.toString();
+          callback();
+        },
+      });
+
+      const stream = renderToPipeableStream(node, {
+        onAllReady() {
+          stream.pipe(sink);
+        },
+        onShellError(error) {
+          reject(error);
+        },
+        onError(error) {
+          reject(error);
+        },
+      });
+
+      sink.on('finish', () => resolve(html));
+      sink.on('error', reject);
+    });
+  };
+
+  const waitForCondition = async (
+    assertion: () => void,
+    timeoutMs = 2000,
+    intervalMs = 10
+  ): Promise<void> => {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        assertion();
+        return;
+      } catch {}
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+
+    assertion();
+  };
+
+  it('waits for seed and skips translate when seed already provides the translation', async () => {
+    const seedDeferred = createDeferred<any>();
+    vi.mocked(fetchSeed).mockReturnValue(seedDeferred.promise);
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'es-ES',
+          key: 'key-1',
+          textsHash: '["Hello","key-1"]',
+          translation: ['Hola'],
+        },
+      ],
+      errors: [],
+    });
+
+    const htmlPromise = renderServer(
+      <React.Suspense fallback={null}>
+        <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="key-1">
+          <T>Hello</T>
+        </Ways>
+      </React.Suspense>
+    );
+
+    await waitForCondition(() => {
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES');
+    });
+
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
+
+    seedDeferred.resolve({
+      data: {
+        'key-1': {
+          '["Hello","key-1"]': ['Hola'],
+        },
+      },
+    });
+
+    const html = await htmlPromise;
+    expect(html).toContain('Hola');
+    const injectedPayload = extractInjectedTranslationsPayload(html);
+    expect(Object.keys(injectedPayload)).toContain('es-ES');
+    expect(html).not.toContain('const next = {};');
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
+  });
+
+  it('does not timeout server blocking while seed is pending', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(fetchSeed).mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve({
+              data: {
+                'key-1': {
+                  '["Hello","key-1"]': ['Hola'],
+                },
+              },
+            });
+          }, 1100);
+        })
+    );
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+
+    const html = await renderServer(
+      <React.Suspense fallback={null}>
+        <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="key-1">
+          <T>Hello</T>
+        </Ways>
+      </React.Suspense>
+    );
+
+    const didTimeout = warnSpy.mock.calls.some((call) => {
+      const message = call[0];
+      return typeof message === 'string' && message.includes('Initial render blocker timed out');
+    });
+
+    expect(html).toContain('Hola');
+    expect(didTimeout).toBe(false);
+    warnSpy.mockRestore();
+  });
+
+  it('batches seed requests across contexts into a single call per locale', async () => {
+    vi.mocked(fetchSeed).mockResolvedValue({
+      data: {},
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+
+    await renderServer(
+      <React.Suspense fallback={null}>
+        <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+          <Ways context="key-1">
+            <T>Hello</T>
+          </Ways>
+          <Ways context="key-2">
+            <T>World</T>
+          </Ways>
+        </Ways>
+      </React.Suspense>
+    );
+
+    expect(vi.mocked(fetchSeed)).toHaveBeenCalledTimes(1);
+
+    const [keys, locale] = vi.mocked(fetchSeed).mock.calls[0];
+    expect(locale).toBe('es-ES');
+    expect([...keys].sort()).toEqual(['key-1', 'key-2']);
+  });
+
+  it('falls back to translate on the server when seed misses', async () => {
+    vi.mocked(fetchSeed).mockResolvedValue({
+      data: {},
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'es-ES',
+          key: 'key-1',
+          textsHash: '["Hello","key-1"]',
+          translation: ['Hola'],
+        },
+      ],
+      errors: [],
+    });
+
+    const html = await renderServer(
+      <React.Suspense fallback={null}>
+        <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="key-1">
+          <T>Hello</T>
+        </Ways>
+      </React.Suspense>
+    );
+
+    expect(html).toContain('Hola');
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+  });
+});
