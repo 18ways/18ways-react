@@ -25,13 +25,21 @@ const createDeferred = <T,>() => {
   return { promise, resolve };
 };
 
-const AppWithLanguageSwitcher = () => {
+const AppWithLanguageSwitcher = ({
+  persistLocaleCookie = true,
+}: {
+  persistLocaleCookie?: boolean;
+}) => {
   const [locale, setLocale] = useState('en-GB');
 
   return (
     <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
       <Ways context="key-1">
-        <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
+        <LanguageSwitcher
+          currentLocale={locale}
+          onLocaleChange={setLocale}
+          persistLocaleCookie={persistLocaleCookie}
+        />
         <div data-testid="translated-text">
           <T>Hello</T>
         </div>
@@ -68,6 +76,7 @@ const getTriggerButton = (): HTMLButtonElement => {
 describe('LanguageSwitcher', () => {
   beforeEach(() => {
     vi.useRealTimers();
+    document.cookie = '18ways_locale=; Max-Age=0; Path=/';
     window.__18WAYS_ACCEPTED_LOCALES__ = ['en-GB', 'es-ES'];
     window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
       'en-GB': {
@@ -129,6 +138,18 @@ describe('LanguageSwitcher', () => {
 
     expect((await screen.findAllByText('🇬🇧')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('🇪🇸').length).toBeGreaterThan(0);
+  });
+
+  it('can skip locale cookie persistence when requested by the caller', async () => {
+    vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
+    document.cookie = '18ways_locale=; Max-Age=0; Path=/';
+
+    render(<AppWithLanguageSwitcher persistLocaleCookie={false} />);
+
+    fireEvent.click(getTriggerButton());
+    fireEvent.click(await screen.findByRole('option', { name: /Spanish/i }));
+
+    expect(document.cookie).not.toContain('18ways_locale=es-ES');
   });
 
   it('recovers if translation loading never settles', async () => {
