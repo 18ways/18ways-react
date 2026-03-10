@@ -3,12 +3,13 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { type Language } from '@18ways/core/common';
 import { readCookieFromDocument, writeCookieToDocument } from '@18ways/core/cookie-utils';
-import { canonicalizeLocale } from '@18ways/core/i18n-shared';
+import { canonicalizeLocale, WAYS_LOCALE_COOKIE_NAME } from '@18ways/core/i18n-shared';
 import { internalT } from '@18ways/core/internal-i18n';
 import { languageSwitcherStyles } from './language-switcher-styles';
 
-const LOCALE_COOKIE_NAME = '18ways-locale';
 const LOCALE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+const COOKIE_CONSENT_COOKIE_NAME = '18ways_cookie_consent';
+const FUNCTIONAL_CONSENT_CATEGORY = 'functional';
 // Wait long enough for locale change re-renders to enqueue translation work
 // before deciding there was no loading phase to observe.
 const CHANGE_SETTLE_TIMEOUT_MS = 1000;
@@ -30,15 +31,49 @@ export interface InternalLanguageSwitcherProps extends LanguageSwitcherProps {
 }
 
 const getLocaleFromCookie = (): string | null => {
-  return readCookieFromDocument(LOCALE_COOKIE_NAME);
+  return readCookieFromDocument(WAYS_LOCALE_COOKIE_NAME);
 };
 
 const setLocaleCookie = (locale: string): void => {
-  writeCookieToDocument(LOCALE_COOKIE_NAME, locale, {
+  writeCookieToDocument(WAYS_LOCALE_COOKIE_NAME, locale, {
     maxAge: LOCALE_COOKIE_MAX_AGE_SECONDS,
     sameSite: 'lax',
     path: '/',
   });
+};
+
+const hasFunctionalConsent = (): boolean => {
+  const rawConsentCookie = readCookieFromDocument(COOKIE_CONSENT_COOKIE_NAME);
+  if (!rawConsentCookie) {
+    return false;
+  }
+
+  let decodedConsentCookie = rawConsentCookie;
+  try {
+    decodedConsentCookie = decodeURIComponent(rawConsentCookie);
+  } catch {
+    decodedConsentCookie = rawConsentCookie;
+  }
+
+  try {
+    const parsed = JSON.parse(decodedConsentCookie) as Record<string, unknown>;
+    const categories = parsed.categories;
+    if (Array.isArray(categories)) {
+      return categories.includes(FUNCTIONAL_CONSENT_CATEGORY);
+    }
+
+    if (typeof categories === 'object' && categories !== null) {
+      return (categories as Record<string, unknown>)[FUNCTIONAL_CONSENT_CATEGORY] === true;
+    }
+
+    if (Array.isArray(parsed.acceptedCategories)) {
+      return parsed.acceptedCategories.includes(FUNCTIONAL_CONSENT_CATEGORY);
+    }
+
+    return false;
+  } catch {
+    return decodedConsentCookie.includes(`"${FUNCTIONAL_CONSENT_CATEGORY}"`);
+  }
 };
 
 const getIntlLocale = (locale: string): Intl.Locale | null => {
@@ -377,7 +412,9 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
       setIsTriggerHovered(false);
 
       applyLocale(newLocale);
-      setLocaleCookie(newLocale);
+      if (hasFunctionalConsent()) {
+        setLocaleCookie(newLocale);
+      }
 
       settleTimerRef.current = setTimeout(() => {
         if (observedTranslationLoadingRef.current) {

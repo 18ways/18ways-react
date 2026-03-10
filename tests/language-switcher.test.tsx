@@ -95,7 +95,7 @@ describe('LanguageSwitcher', () => {
     fireEvent.click(await screen.findByRole('option', { name: /Spanish/i }));
 
     expect(getTriggerButton()).toBeDisabled();
-    expect(document.cookie).toContain('18ways-locale=es-ES');
+    expect(document.cookie).toContain('18ways_locale=es-ES');
     expect(screen.getAllByText(internalT('es-ES', 'changingLanguage')).length).toBeGreaterThan(0);
 
     await act(async () => {
