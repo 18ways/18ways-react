@@ -58,12 +58,63 @@ const KeyScopedLoadingApp = () => {
   );
 };
 
+const PreviousLocaleFallbackApp = () => {
+  const [locale, setLocale] = useState('fr-FR');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <button onClick={() => setLocale('ja-JP')}>Switch locale</button>
+      <Ways context="key-1">
+        <T>Hello</T>
+      </Ways>
+    </Ways>
+  );
+};
+
+const PreviousLocalePartialFallbackApp = () => {
+  const [locale, setLocale] = useState('fr-FR');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <button onClick={() => setLocale('ja-JP')}>Switch locale</button>
+      <Ways context="key-1">
+        <>
+          <T>Hello</T>
+          <T>Goodbye</T>
+        </>
+      </Ways>
+    </Ways>
+  );
+};
+
+const CachedLocaleReturnApp = () => {
+  const [locale, setLocale] = useState('fr-FR');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <button onClick={() => setLocale('ja-JP')}>Switch locale</button>
+      <Ways context="cookie-consent">
+        <LoadingStatus />
+        <T>Privacy settings</T>
+      </Ways>
+    </Ways>
+  );
+};
+
+const getBodyText = () => document.body.textContent || '';
+
 describe('useTranslationLoading', () => {
   beforeEach(() => {
     window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
       'en-GB': {
         'key-1': {
           '["Hello","key-1"]': ['Hello'],
+        },
+      },
+      'fr-FR': {
+        'key-1': {
+          '["Hello","key-1"]': ['Bonjour'],
+          '["Hello","Goodbye","key-1"]': ['Bonjour'],
         },
       },
     };
@@ -127,5 +178,90 @@ describe('useTranslationLoading', () => {
     await waitFor(() => {
       expect(screen.getByTestId('translation-loading')).toHaveTextContent('idle');
     });
+  });
+
+  it('keeps the previous locale visible while the next locale is still loading', async () => {
+    const deferred = createDeferred<any>();
+
+    vi.mocked(fetchTranslations).mockReturnValue(deferred.promise);
+
+    render(<PreviousLocaleFallbackApp />);
+
+    expect(screen.getByText('Bonjour')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Switch locale'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Bonjour')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Hello')).not.toBeInTheDocument();
+
+    await act(async () => {
+      deferred.resolve({
+        data: [
+          {
+            locale: 'ja-JP',
+            key: 'key-1',
+            textsHash: '["Hello","key-1"]',
+            translation: ['こんにちは'],
+          },
+        ],
+        errors: [],
+      });
+      await deferred.promise;
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('こんにちは')).toBeInTheDocument();
+    });
+  });
+
+  it('falls back per string from previous locale to base text while the next locale is loading', async () => {
+    const deferred = createDeferred<any>();
+
+    vi.mocked(fetchTranslations).mockReturnValue(deferred.promise);
+
+    render(<PreviousLocalePartialFallbackApp />);
+
+    expect(getBodyText()).toContain('Bonjour');
+    expect(getBodyText()).toContain('Goodbye');
+
+    fireEvent.click(screen.getByText('Switch locale'));
+
+    await waitFor(() => {
+      expect(getBodyText()).toContain('Bonjour');
+      expect(getBodyText()).toContain('Goodbye');
+    });
+
+    expect(getBodyText()).not.toContain('Hello');
+  });
+
+  it('does not create a pending seed when switching to a locale that is already cached for the context', async () => {
+    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
+      ...(window.__18WAYS_IN_MEMORY_TRANSLATIONS__ || {}),
+      'ja-JP': {
+        'cookie-consent': {
+          '["Privacy settings","cookie-consent"]': ['プライバシー設定'],
+        },
+      },
+    };
+
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+
+    render(<CachedLocaleReturnApp />);
+
+    fireEvent.click(screen.getByText('Switch locale'));
+
+    await waitFor(() => {
+      expect(screen.getByText('プライバシー設定')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('translation-loading')).toHaveTextContent('idle');
+    expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
   });
 });

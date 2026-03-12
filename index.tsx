@@ -1,6 +1,7 @@
 'use client';
 
 import React, {
+  type DependencyList,
   useRef,
   useState,
   useEffect,
@@ -29,6 +30,7 @@ import { InjectTranslations } from './inject';
 import { formatWaysParser } from '@18ways/core/parsers/ways-parser';
 import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/translation-store';
 import { registerQueueClearFn } from './testing';
+import { registerRuntimeResetFn } from './testing';
 import { decryptTranslationValues } from '@18ways/core/crypto';
 import { InternalLanguageSwitcher, type LanguageSwitcherProps } from './language-switcher';
 import { deepMerged } from '@18ways/core/object-utils';
@@ -65,6 +67,10 @@ const SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
     process.env['18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS'],
   3000
 );
+const CONTEXT_TRANSLATION_GC_DELAY_MS = parsePositiveInt(
+  process.env.NEXT_PUBLIC_18WAYS_CONTEXT_GC_DELAY_MS || process.env['18WAYS_CONTEXT_GC_DELAY_MS'],
+  5 * 60 * 1000
+);
 
 const canonicalizeLocaleCodes = (localeCodes: string[]): string[] =>
   Array.from(new Set(localeCodes.map((locale) => canonicalizeLocale(locale)).filter(Boolean)));
@@ -77,6 +83,30 @@ const readAcceptedLocalesFromWindow = (): string[] => {
   return Array.isArray(window.__18WAYS_ACCEPTED_LOCALES__)
     ? canonicalizeLocaleCodes(window.__18WAYS_ACCEPTED_LOCALES__)
     : [];
+};
+
+let transitionFallbackLocaleSingleton: string | null = null;
+const mountedContextCountsSingleton = new Map<string, number>();
+const contextGcTimeoutsSingleton = new Map<string, number>();
+
+const readTransitionFallbackLocale = (): string | null => transitionFallbackLocaleSingleton;
+
+const writeTransitionFallbackLocale = (locale: string | null): void => {
+  transitionFallbackLocaleSingleton = locale || null;
+};
+
+const cancelContextGc = (contextKey: string): void => {
+  if (typeof window === 'undefined' || !contextKey) {
+    return;
+  }
+
+  const timeoutId = contextGcTimeoutsSingleton.get(contextKey);
+  if (!timeoutId) {
+    return;
+  }
+
+  clearTimeout(timeoutId);
+  contextGcTimeoutsSingleton.delete(contextKey);
 };
 
 const buildLanguagesFromLocaleCodes = (localeCodes: string[]): Language[] =>
@@ -187,6 +217,21 @@ const warnedSuspenseFallbacks = new Set<string>();
 const seedLookupKey = (contextKey: string, targetLocale: string): string =>
   `${contextKey}::${targetLocale}`;
 
+const hasCachedSeedForContext = (contextKey: string, targetLocale: string): boolean => {
+  if (!contextKey || !targetLocale) {
+    return false;
+  }
+
+  const inMemoryTranslations = getInMemoryTranslations();
+  const localeTranslations = inMemoryTranslations[targetLocale];
+  return Boolean(
+    localeTranslations &&
+    typeof localeTranslations === 'object' &&
+    !Array.isArray(localeTranslations) &&
+    contextKey in localeTranslations
+  );
+};
+
 export interface WaysRootProps {
   apiKey: string;
   locale?: string;
@@ -230,7 +275,6 @@ const seedContextTranslationsBatch = async (
     return;
   }
 
-  const seedRequestStartedAt = Date.now();
   const seedResult = await fetchSeed(contextKeys, targetLocale);
   if (!seedResult?.data || typeof seedResult.data !== 'object' || Array.isArray(seedResult.data)) {
     return;
@@ -349,6 +393,7 @@ const SuspenseFallback: React.FC<{
 type WaysRootContextType = {
   engine: WaysEngine | null;
   targetLocale: string;
+  transitionFallbackLocale: string | null;
   defaultLocale: string;
   baseLocale?: string;
   acceptedLocales: string[];
@@ -366,9 +411,21 @@ const emptyStore = new TranslationStore({
   fetchTranslations: async () => ({ data: [], errors: [] }),
 });
 
+if (process.env.NODE_ENV === 'test') {
+  registerRuntimeResetFn(() => {
+    transitionFallbackLocaleSingleton = null;
+    mountedContextCountsSingleton.clear();
+    contextGcTimeoutsSingleton.forEach((timeoutId) => {
+      clearTimeout(timeoutId);
+    });
+    contextGcTimeoutsSingleton.clear();
+  });
+}
+
 const WaysRootContext = createContext<WaysRootContextType>({
   engine: null,
   targetLocale: 'en-GB',
+  transitionFallbackLocale: null,
   defaultLocale: 'en-GB',
   baseLocale: undefined,
   acceptedLocales: [],
@@ -433,8 +490,13 @@ const WaysRoot: React.FC<{
   const seededContextsRef = useRef<Set<string>>(new Set());
   const queuedSeedContextsByLocaleRef = useRef<Map<string, Set<string>>>(new Map());
   const isSeedFlushScheduledRef = useRef(false);
+  const previousTargetLocaleRef = useRef(defaultLocale);
 
   const [targetLocale, setTargetLocale] = useState(defaultLocale);
+  const [transitionFallbackLocale, setTransitionFallbackLocale] = useState<string | null>(() => {
+    const fallbackLocale = readTransitionFallbackLocale();
+    return fallbackLocale && fallbackLocale !== defaultLocale ? fallbackLocale : null;
+  });
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -458,6 +520,11 @@ const WaysRoot: React.FC<{
     store.subscribeToTranslations,
     store.getTranslationsSnapshot,
     store.getTranslationsSnapshot
+  );
+  const loadingSnapshot = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot
   );
   const completedTranslations =
     typeof window === 'undefined'
@@ -539,6 +606,11 @@ const WaysRoot: React.FC<{
         return null;
       }
 
+      if (hasCachedSeedForContext(contextKey, targetLocale)) {
+        seededContextsRef.current.add(key);
+        return null;
+      }
+
       seededContextsRef.current.add(key);
       const seedPromise = new Promise<void>((resolve) => {
         pendingSeedResolversRef.current.set(key, resolve);
@@ -574,11 +646,42 @@ const WaysRoot: React.FC<{
     []
   );
 
+  useEffect(() => {
+    if (previousTargetLocaleRef.current !== targetLocale) {
+      const previousLocale = previousTargetLocaleRef.current;
+      previousTargetLocaleRef.current = targetLocale;
+      setTransitionFallbackLocale(previousLocale);
+      writeTransitionFallbackLocale(previousLocale);
+    }
+  }, [targetLocale]);
+
+  useEffect(() => {
+    if (
+      loadingSnapshot.hasPending ||
+      loadingSnapshot.hasInFlight ||
+      pendingSeedPromisesRef.current.size > 0 ||
+      isSeedFlushScheduledRef.current
+    ) {
+      return;
+    }
+
+    if (transitionFallbackLocale !== null) {
+      setTransitionFallbackLocale(null);
+    }
+    writeTransitionFallbackLocale(targetLocale);
+  }, [
+    loadingSnapshot.hasInFlight,
+    loadingSnapshot.hasPending,
+    targetLocale,
+    transitionFallbackLocale,
+  ]);
+
   return (
     <WaysRootContext.Provider
       value={{
         engine,
         targetLocale,
+        transitionFallbackLocale,
         setTargetLocale,
         defaultLocale,
         baseLocale,
@@ -624,6 +727,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
   const {
     targetLocale: cTargetLocale,
     baseLocale: cBaseLocale,
+    transitionFallbackLocale: rootTransitionFallbackLocale,
     messageFormatter,
     store,
     getPendingSeedPromise,
@@ -686,12 +790,53 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
     return registerQueueClearFn(clearQueue);
   }, [store]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !contextKey) {
+      return;
+    }
+
+    mountedContextCountsSingleton.set(
+      contextKey,
+      (mountedContextCountsSingleton.get(contextKey) || 0) + 1
+    );
+    cancelContextGc(contextKey);
+
+    return () => {
+      const currentCount = mountedContextCountsSingleton.get(contextKey) || 0;
+      if (currentCount <= 1) {
+        mountedContextCountsSingleton.delete(contextKey);
+        contextGcTimeoutsSingleton.set(
+          contextKey,
+          Number(
+            window.setTimeout(() => {
+              contextGcTimeoutsSingleton.delete(contextKey);
+              if ((mountedContextCountsSingleton.get(contextKey) || 0) > 0) {
+                return;
+              }
+              store.deleteContextTranslations(contextKey);
+            }, CONTEXT_TRANSLATION_GC_DELAY_MS)
+          )
+        );
+        return;
+      }
+
+      mountedContextCountsSingleton.set(contextKey, currentCount - 1);
+    };
+  }, [contextKey, store]);
+
   const getFallbackLocale = useCallback(() => {
     if (previousTargetLocaleRef.current !== targetLocale) {
       return previousTargetLocaleRef.current;
     }
+    if (rootTransitionFallbackLocale && rootTransitionFallbackLocale !== targetLocale) {
+      return rootTransitionFallbackLocale;
+    }
+    const globalTransitionFallbackLocale = readTransitionFallbackLocale();
+    if (globalTransitionFallbackLocale && globalTransitionFallbackLocale !== targetLocale) {
+      return globalTransitionFallbackLocale;
+    }
     return fallbackLocaleRef.current;
-  }, [targetLocale]);
+  }, [rootTransitionFallbackLocale, targetLocale]);
 
   return (
     <>
@@ -851,7 +996,10 @@ type ComponentsMap = Record<string, string | React.ComponentType<any>>;
 interface UseTParams {
   baseLocale?: string;
   targetLocale?: string;
+  suspend?: boolean;
 }
+
+type UseTranslatedMemoFactory<T> = (t: TFunction) => T;
 
 const applyComponentsToText = (
   components: ComponentsMap = {},
@@ -984,7 +1132,11 @@ const EMPTY_LOADING_SNAPSHOT: TranslationStoreSnapshot = {
 };
 const getEmptyLoadingSnapshot = () => EMPTY_LOADING_SNAPSHOT;
 
-export const useT = ({ baseLocale: tBaseLocale, targetLocale: tTargetLocale }: UseTParams = {}) => {
+export const useT = ({
+  baseLocale: tBaseLocale,
+  targetLocale: tTargetLocale,
+  suspend = true,
+}: UseTParams = {}) => {
   const context = useContext(Context);
   const isRenderingSuspenseFallback = useContext(SuspenseFallbackContext);
   const missingTranslationSuspensePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
@@ -1106,17 +1258,36 @@ export const useT = ({ baseLocale: tBaseLocale, targetLocale: tTargetLocale }: U
             return null;
           }
 
-          const fallbackVal = store.getTranslation(fallbackLocale, effectiveContextKey, textsHash);
+          const fallbackVal =
+            store.getTranslation(fallbackLocale, effectiveContextKey, textsHash) ||
+            (
+              (getInMemoryTranslations()[fallbackLocale] as Record<string, unknown> | undefined)?.[
+                effectiveContextKey
+              ] as Record<string, unknown> | undefined
+            )?.[textsHash];
           if (!fallbackVal) {
             return null;
           }
 
-          return decryptCachedTranslation(fallbackVal, fallbackLocale);
+          const decryptedFallback = decryptCachedTranslation(
+            fallbackVal as string[],
+            fallbackLocale
+          );
+          if (!decryptedFallback) {
+            return null;
+          }
+
+          // Prefer previous-locale text when available, but preserve source/base text
+          // for any slots the previous locale does not yet cover.
+          return texts.map((text, index) => decryptedFallback[index] || text);
         };
 
         const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
         if (pendingSeedPromise) {
           const fallbackTranslation = getFallbackTranslation();
+          if (!suspend && typeof window !== 'undefined') {
+            return fallbackTranslation || texts;
+          }
           if (isRenderingSuspenseFallback) {
             // On the server, keep suspending until seed resolves so we do not
             // stream source-language fallback content.
@@ -1145,6 +1316,7 @@ export const useT = ({ baseLocale: tBaseLocale, targetLocale: tTargetLocale }: U
         }
 
         const shouldSuspendForMissingTranslation =
+          suspend &&
           Boolean(baseLocale && targetLocale && baseLocale !== targetLocale) &&
           (store.hasPendingRequestsForKey(effectiveContextKey) ||
             store.hasInFlightRequestsForKey(effectiveContextKey)) &&
@@ -1203,6 +1375,15 @@ export const useT = ({ baseLocale: tBaseLocale, targetLocale: tTargetLocale }: U
   return t;
 };
 
+export const useTranslatedMemo = <T,>(
+  factory: UseTranslatedMemoFactory<T>,
+  deps: DependencyList,
+  options: UseTParams = {}
+): T => {
+  const t = useT(options);
+  return useMemo(() => factory(t), [t, ...deps]);
+};
+
 export const useTranslationLoading = (): boolean => {
   const context = useContext(Context);
   useSyncExternalStore(
@@ -1219,12 +1400,9 @@ export const useTranslationLoading = (): boolean => {
     context.targetLocale &&
     context.getPendingSeedPromise?.(context.contextKey, context.targetLocale)
   );
-
-  return (
-    hasPendingSeed ||
-    context.store.hasPendingRequestsForKey(context.contextKey) ||
-    context.store.hasInFlightRequestsForKey(context.contextKey)
-  );
+  const hasPending = context.store.hasPendingRequestsForKey(context.contextKey);
+  const hasInFlight = context.store.hasInFlightRequestsForKey(context.contextKey);
+  return hasPendingSeed || hasPending || hasInFlight;
 };
 
 export const useCurrentLocale = (): string => {

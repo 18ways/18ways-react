@@ -23,6 +23,7 @@ describe('WaysRoot - Performance and Caching', () => {
   beforeEach(() => {
     delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it('should batch multiple translation requests', async () => {

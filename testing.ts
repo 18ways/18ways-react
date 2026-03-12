@@ -1,10 +1,28 @@
 const clearQueueFns = new Set<() => Promise<void>>();
+const runtimeResetFns = new Set<() => void>();
 
 export const registerQueueClearFn = (clearQueue: () => Promise<void>): (() => void) => {
   clearQueueFns.add(clearQueue);
   return () => {
     clearQueueFns.delete(clearQueue);
   };
+};
+
+export const registerRuntimeResetFn = (resetRuntimeState: () => void): (() => void) => {
+  runtimeResetFns.add(resetRuntimeState);
+  return () => {
+    runtimeResetFns.delete(resetRuntimeState);
+  };
+};
+
+export const resetTestRuntimeState = (): void => {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('This function is only available in test environments');
+  }
+
+  runtimeResetFns.forEach((resetRuntimeState) => {
+    resetRuntimeState();
+  });
 };
 
 export const clearQueueForTests = async () => {
