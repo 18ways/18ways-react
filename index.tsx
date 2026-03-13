@@ -67,10 +67,7 @@ const SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
     process.env['18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS'],
   3000
 );
-const CONTEXT_TRANSLATION_GC_DELAY_MS = parsePositiveInt(
-  process.env.NEXT_PUBLIC_18WAYS_CONTEXT_GC_DELAY_MS || process.env['18WAYS_CONTEXT_GC_DELAY_MS'],
-  5 * 60 * 1000
-);
+const CONTEXT_TRANSLATION_GC_DELAY_MS = 5 * 60 * 1000;
 
 const canonicalizeLocaleCodes = (localeCodes: string[]): string[] =>
   Array.from(new Set(localeCodes.map((locale) => canonicalizeLocale(locale)).filter(Boolean)));
