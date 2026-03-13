@@ -20,7 +20,6 @@
     "build": "bun run bun-build.ts",
     "dev": "bun run --watch bun-build.ts",
     "ts:check": "tsc --noEmit",
-    "publish": "bun run build && bun publish --access public",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "e2e": "bun run e2e/run-react-e2e.tsx"
