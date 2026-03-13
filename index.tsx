@@ -19,6 +19,7 @@ import {
   Translations,
   type Language,
   getInMemoryTranslations,
+  type _RequestInitDecorator,
   resetServerInMemoryTranslations,
   fetchSeed,
   generateHashId,
@@ -37,7 +38,7 @@ import { deepMerged } from '@18ways/core/object-utils';
 import { canonicalizeLocale, localeToFlagEmoji } from '@18ways/core/i18n-shared';
 import { create18waysEngine, type WaysEngine } from '@18ways/core/engine';
 
-export { fetchEnabledLanguages } from '@18ways/core/common';
+export { fetchAcceptedLocales, fetchEnabledLanguages, resolveOrigin } from '@18ways/core/common';
 export type { Language, Translations } from '@18ways/core/common';
 
 export type MessageFormatterFn = (params: {
@@ -49,24 +50,7 @@ export type MessageFormatterFn = (params: {
 export type MessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 type ResolvedMessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 
-const parsePositiveInt = (rawValue: string | undefined, fallback: number): number => {
-  if (!rawValue) {
-    return fallback;
-  }
-
-  const parsed = Number.parseInt(rawValue, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return parsed;
-};
-
-const SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
-  process.env.NEXT_PUBLIC_18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS ||
-    process.env['18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS'],
-  3000
-);
+const DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = 3000;
 const CONTEXT_TRANSLATION_GC_DELAY_MS = 5 * 60 * 1000;
 
 const canonicalizeLocaleCodes = (localeCodes: string[]): string[] =>
@@ -237,7 +221,11 @@ export interface WaysRootProps {
   cacheTtl?: number;
   messageFormatter?: MessageFormatter;
   fetcher?: typeof fetch;
-  apiUrl?: string;
+  /** @internal Adapter-only API URL override. */
+  _apiUrl?: string;
+  /** @internal Adapter-only fetch init hook. */
+  _requestInitDecorator?: _RequestInitDecorator;
+  serverInitialTranslationTimeoutMs?: number;
   // Used on SSR to forward the page origin to server-side API calls.
   requestOrigin?: string;
   // Used on SSR to inject accepted locales into window during hydration.
@@ -289,6 +277,7 @@ interface InitialRenderBlockerProps {
   pendingSeedPromise: Promise<void> | null;
   initialRenderPromiseRef: React.MutableRefObject<Promise<void> | null>;
   hasCompletedInitialRenderBlockRef: React.MutableRefObject<boolean>;
+  serverInitialTranslationTimeoutMs: number;
 }
 
 const InitialRenderBlocker: React.FC<InitialRenderBlockerProps> = ({
@@ -298,6 +287,7 @@ const InitialRenderBlocker: React.FC<InitialRenderBlockerProps> = ({
   pendingSeedPromise,
   initialRenderPromiseRef,
   hasCompletedInitialRenderBlockRef,
+  serverInitialTranslationTimeoutMs,
 }) => {
   if (hasCompletedInitialRenderBlockRef.current) {
     return null;
@@ -336,7 +326,7 @@ const InitialRenderBlocker: React.FC<InitialRenderBlockerProps> = ({
                 setTimeout(() => {
                   didTimeout = true;
                   resolve();
-                }, SERVER_INITIAL_TRANSLATION_TIMEOUT_MS);
+                }, serverInitialTranslationTimeoutMs);
               }),
             ])
         : ensurePromise;
@@ -346,7 +336,7 @@ const InitialRenderBlocker: React.FC<InitialRenderBlockerProps> = ({
         warnedInitialRenderTimeouts.add(timeoutKey);
         const elapsedMs = Date.now() - waitStartedAt;
         console.warn(
-          `[18ways] Initial render blocker timed out after ${SERVER_INITIAL_TRANSLATION_TIMEOUT_MS}ms`,
+          `[18ways] Initial render blocker timed out after ${serverInitialTranslationTimeoutMs}ms`,
           {
             contextKey,
             hasPending: store.hasPendingRequestsForKey(contextKey),
@@ -395,6 +385,7 @@ type WaysRootContextType = {
   baseLocale?: string;
   acceptedLocales: string[];
   messageFormatter: ResolvedMessageFormatter;
+  serverInitialTranslationTimeoutMs: number;
   setTargetLocale: (targetLocale: string) => void;
   getPendingSeedPromise: SeedPromiseLookup;
   ensureSeedPromise: SeedPromiseEnsure;
@@ -427,6 +418,7 @@ const WaysRootContext = createContext<WaysRootContextType>({
   baseLocale: undefined,
   acceptedLocales: [],
   messageFormatter: 'waysParser',
+  serverInitialTranslationTimeoutMs: DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS,
   setTargetLocale: () => {
     throw new Error('The root component has not been initialised');
   },
@@ -447,6 +439,7 @@ const WaysRoot: React.FC<{
   baseLocale?: string;
   acceptedLocales?: string[];
   messageFormatter?: MessageFormatter;
+  serverInitialTranslationTimeoutMs?: number;
   rootContextKey?: string;
 }> = ({
   children,
@@ -456,6 +449,7 @@ const WaysRoot: React.FC<{
   baseLocale,
   acceptedLocales = [],
   messageFormatter = 'waysParser',
+  serverInitialTranslationTimeoutMs = DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS,
   rootContextKey,
 }) => {
   const normalizedAcceptedLocales = useMemo(() => {
@@ -684,6 +678,7 @@ const WaysRoot: React.FC<{
         baseLocale,
         acceptedLocales: normalizedAcceptedLocales,
         messageFormatter,
+        serverInitialTranslationTimeoutMs,
         getPendingSeedPromise,
         ensureSeedPromise,
         completedTranslations,
@@ -726,6 +721,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
     baseLocale: cBaseLocale,
     transitionFallbackLocale: rootTransitionFallbackLocale,
     messageFormatter,
+    serverInitialTranslationTimeoutMs,
     store,
     getPendingSeedPromise,
     ensureSeedPromise,
@@ -862,6 +858,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
             pendingSeedPromise={pendingSeedPromise}
             initialRenderPromiseRef={initialRenderPromiseRef}
             hasCompletedInitialRenderBlockRef={hasCompletedInitialRenderBlockRef}
+            serverInitialTranslationTimeoutMs={serverInitialTranslationTimeoutMs}
           />
         </Suspense>
       </Context.Provider>
@@ -888,7 +885,9 @@ export const Ways: React.FC<WaysProps> = (props) => {
       cacheTtl,
       messageFormatter,
       fetcher,
-      apiUrl,
+      _apiUrl,
+      _requestInitDecorator,
+      serverInitialTranslationTimeoutMs,
       requestOrigin,
       acceptedLocales,
       context,
@@ -916,10 +915,11 @@ export const Ways: React.FC<WaysProps> = (props) => {
     if (!engineRef.current) {
       engineRef.current = create18waysEngine({
         apiKey,
-        apiUrl,
+        apiUrl: _apiUrl,
         fetcher,
         cacheTtlSeconds: cacheTtl,
         origin: requestOrigin,
+        _requestInitDecorator,
         baseLocale: baseLocale || defaultLocale,
         locale: locale || defaultLocale,
         context: contextPath,
@@ -938,6 +938,7 @@ export const Ways: React.FC<WaysProps> = (props) => {
             baseLocale={baseLocale}
             acceptedLocales={acceptedLocales}
             messageFormatter={messageFormatter}
+            serverInitialTranslationTimeoutMs={serverInitialTranslationTimeoutMs}
             rootContextKey={rootContextKey || undefined}
           >
             <WaysProvider
