@@ -179,6 +179,7 @@ interface ContextualTranslateTextParams extends TranslateTextParams {
   textsHash: string;
   contextFingerprint?: string;
   contextMetadata?: TranslationContextValue;
+  syncOnly?: boolean;
 }
 
 type SeedPromiseLookup = (contextKey: string, targetLocale: string) => Promise<void> | null;
@@ -592,7 +593,6 @@ const WaysRoot: React.FC<{
       throw acceptedLocalesServerResolution.promise;
     }
   }
-
   useEffect(() => {
     if (normalizedAcceptedLocalesFromProps.length > 0) {
       return;
@@ -1524,6 +1524,18 @@ export const useT = ({
           if (cachedVal) {
             const decrypted = decryptCachedTranslation(cachedVal, targetLocale);
             if (decrypted) {
+              if (typeof window !== 'undefined') {
+                queueTranslation({
+                  key: effectiveContextKey,
+                  textsHash,
+                  baseLocale,
+                  targetLocale,
+                  texts,
+                  contextFingerprint,
+                  contextMetadata: finalContextMetadata,
+                  syncOnly: true,
+                });
+              }
               return decrypted;
             }
           }
