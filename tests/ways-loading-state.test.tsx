@@ -102,6 +102,22 @@ const CachedLocaleReturnApp = () => {
   );
 };
 
+const PageWideAtomicTransitionApp = () => {
+  const [locale, setLocale] = useState('fr-FR');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <button onClick={() => setLocale('ja-JP')}>Switch locale</button>
+      <Ways context="header">
+        <T>Hello</T>
+      </Ways>
+      <Ways context="footer">
+        <T>Goodbye</T>
+      </Ways>
+    </Ways>
+  );
+};
+
 const getBodyText = () => document.body.textContent || '';
 
 describe('useTranslationLoading', () => {
@@ -264,5 +280,64 @@ describe('useTranslationLoading', () => {
 
     expect(screen.getByTestId('translation-loading')).toHaveTextContent('idle');
     expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
+  });
+
+  it('holds the previous locale across the page until every pending context for the next locale settles', async () => {
+    const deferred = createDeferred<any>();
+
+    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
+      ...(window.__18WAYS_IN_MEMORY_TRANSLATIONS__ || {}),
+      'fr-FR': {
+        header: {
+          '["Hello","header"]': ['Bonjour'],
+        },
+        footer: {
+          '["Goodbye","footer"]': ['Au revoir'],
+        },
+      },
+      'ja-JP': {
+        header: {
+          '["Hello","header"]': ['こんにちは'],
+        },
+      },
+    };
+
+    vi.mocked(fetchTranslations).mockReturnValue(deferred.promise);
+
+    render(<PageWideAtomicTransitionApp />);
+
+    expect(getBodyText()).toContain('Bonjour');
+    expect(getBodyText()).toContain('Au revoir');
+
+    fireEvent.click(screen.getByText('Switch locale'));
+
+    await waitFor(() => {
+      expect(fetchTranslations).toHaveBeenCalledTimes(1);
+    });
+
+    expect(getBodyText()).toContain('Bonjour');
+    expect(getBodyText()).toContain('Au revoir');
+    expect(getBodyText()).not.toContain('こんにちは');
+
+    await act(async () => {
+      deferred.resolve({
+        data: [
+          {
+            locale: 'ja-JP',
+            key: 'footer',
+            textsHash: '["Goodbye","footer"]',
+            translation: ['さようなら'],
+          },
+        ],
+        errors: [],
+      });
+      await deferred.promise;
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(getBodyText()).toContain('こんにちは');
+      expect(getBodyText()).toContain('さようなら');
+    });
   });
 });

@@ -33,6 +33,7 @@ import { formatWaysParser } from '@18ways/core/parsers/ways-parser';
 import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/translation-store';
 import { registerQueueClearFn } from './testing';
 import { registerRuntimeResetFn } from './testing';
+import { readAcceptedLocalesFromWindow } from '@18ways/core/client-accepted-locales';
 import { decryptTranslationValues } from '@18ways/core/crypto';
 import {
   InternalLanguageSwitcher,
@@ -89,18 +90,6 @@ const canonicalizeLocaleCodes = (localeCodes: string[]): string[] =>
 
 const localeCodeListsEqual = (left: string[], right: string[]): boolean =>
   left.length === right.length && left.every((locale, index) => locale === right[index]);
-
-const readAcceptedLocalesFromWindow = (): string[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  const waysWindow = window as WaysWindow;
-
-  return Array.isArray(waysWindow.__18WAYS_ACCEPTED_LOCALES__)
-    ? canonicalizeLocaleCodes(waysWindow.__18WAYS_ACCEPTED_LOCALES__)
-    : [];
-};
 
 type AcceptedLocalesServerResolution =
   | {
@@ -867,6 +856,14 @@ const WaysRoot: React.FC<{
     () => pendingSeedPromisesRef.current.size > 0 || isSeedFlushScheduledRef.current,
     []
   );
+  const hasActiveTransitionWork =
+    loadingSnapshot.hasPending ||
+    loadingSnapshot.hasInFlight ||
+    pendingSeedPromisesRef.current.size > 0 ||
+    isSeedFlushScheduledRef.current;
+  const effectiveTransitionFallbackLocale = hasActiveTransitionWork
+    ? transitionFallbackLocale
+    : null;
 
   useEffect(() => {
     if (previousTargetLocaleRef.current !== targetLocale) {
@@ -878,12 +875,7 @@ const WaysRoot: React.FC<{
   }, [targetLocale]);
 
   useEffect(() => {
-    if (
-      loadingSnapshot.hasPending ||
-      loadingSnapshot.hasInFlight ||
-      pendingSeedPromisesRef.current.size > 0 ||
-      isSeedFlushScheduledRef.current
-    ) {
+    if (hasActiveTransitionWork) {
       return;
     }
 
@@ -892,6 +884,7 @@ const WaysRoot: React.FC<{
     }
     writeTransitionFallbackLocale(targetLocale);
   }, [
+    hasActiveTransitionWork,
     loadingSnapshot.hasInFlight,
     loadingSnapshot.hasPending,
     targetLocale,
@@ -903,7 +896,7 @@ const WaysRoot: React.FC<{
       value={{
         engine,
         targetLocale,
-        transitionFallbackLocale,
+        transitionFallbackLocale: effectiveTransitionFallbackLocale,
         setTargetLocale,
         defaultLocale,
         baseLocale,
@@ -1373,6 +1366,7 @@ export const useT = ({
   suspend = true,
 }: UseTParams = {}) => {
   const context = useContext(Context);
+  const rootContext = useContext(WaysRootContext);
   const isRenderingSuspenseFallback = useContext(SuspenseFallbackContext);
   const missingTranslationSuspensePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
   const storeSnapshot = useSyncExternalStore(
@@ -1479,14 +1473,6 @@ export const useT = ({
           }
         };
 
-        const cachedVal = store.getTranslation(targetLocale, effectiveContextKey, textsHash);
-        if (cachedVal) {
-          const decrypted = decryptCachedTranslation(cachedVal, targetLocale);
-          if (decrypted) {
-            return decrypted;
-          }
-        }
-
         const getFallbackTranslation = (): string[] | null => {
           const fallbackLocale = getFallbackLocale();
           if (!fallbackLocale || fallbackLocale === targetLocale) {
@@ -1517,9 +1503,26 @@ export const useT = ({
           return texts.map((text, index) => decryptedFallback[index] || text);
         };
 
+        const fallbackTranslation = getFallbackTranslation();
+        const shouldHoldTargetLocaleDisplay =
+          typeof window !== 'undefined' &&
+          Boolean(
+            rootContext.transitionFallbackLocale &&
+            rootContext.transitionFallbackLocale !== targetLocale
+          );
+
+        if (!shouldHoldTargetLocaleDisplay) {
+          const cachedVal = store.getTranslation(targetLocale, effectiveContextKey, textsHash);
+          if (cachedVal) {
+            const decrypted = decryptCachedTranslation(cachedVal, targetLocale);
+            if (decrypted) {
+              return decrypted;
+            }
+          }
+        }
+
         const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
         if (pendingSeedPromise) {
-          const fallbackTranslation = getFallbackTranslation();
           if (!suspend && typeof window !== 'undefined') {
             return fallbackTranslation || texts;
           }
@@ -1535,7 +1538,7 @@ export const useT = ({
           throw pendingSeedPromise;
         }
 
-        const enqueueAccepted = queueTranslation({
+        queueTranslation({
           key: effectiveContextKey,
           textsHash,
           baseLocale,
@@ -1545,7 +1548,10 @@ export const useT = ({
           contextMetadata: finalContextMetadata,
         });
 
-        const fallbackTranslation = getFallbackTranslation();
+        if (shouldHoldTargetLocaleDisplay) {
+          return fallbackTranslation || texts;
+        }
+
         if (fallbackTranslation) {
           return fallbackTranslation;
         }
@@ -1604,7 +1610,14 @@ export const useT = ({
 
       return applyRecursiveTextMap(children);
     }) as TFunction,
-    [context, isRenderingSuspenseFallback, storeSnapshot.version, tBaseLocale, tTargetLocale]
+    [
+      context,
+      isRenderingSuspenseFallback,
+      rootContext.transitionFallbackLocale,
+      storeSnapshot.version,
+      tBaseLocale,
+      tTargetLocale,
+    ]
   );
 
   return t;
