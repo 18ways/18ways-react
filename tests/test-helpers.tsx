@@ -3,7 +3,7 @@ import React from 'react';
 import { render, RenderResult, act } from '@testing-library/react';
 import { Ways } from '../index';
 import { fetchTranslations } from '@18ways/core/common';
-import { clearQueueForTests } from '../testing';
+import { clearQueueForTests, resetTestRuntimeState } from '../testing';
 
 /**
  * Mock fetchTranslations with provided translations
@@ -79,6 +79,8 @@ export function renderWithWays(
  * Clear all Ways-related state
  */
 export function clearWaysState() {
+  resetTestRuntimeState();
+  delete window.__18WAYS_ACCEPTED_LOCALES__;
   delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
   vi.clearAllMocks();
 }
@@ -110,6 +112,7 @@ export function setupCommonMocks() {
     const actual = await vi.importActual('@18ways/core/common');
     return {
       ...actual,
+      fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
       fetchTranslations: vi.fn(),
       generateHashId: vi.fn((x) => JSON.stringify(x)),
     };

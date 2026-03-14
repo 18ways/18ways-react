@@ -4,12 +4,19 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderToPipeableStream } from 'react-dom/server';
 import { Writable } from 'node:stream';
 import { Ways, T } from '../index';
-import { fetchSeed, fetchTranslations, resetServerInMemoryTranslations } from '@18ways/core/common';
+import {
+  fetchAcceptedLocales,
+  fetchSeed,
+  fetchTranslations,
+  resetServerInMemoryTranslations,
+} from '@18ways/core/common';
+import { resetTestRuntimeState } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
     ...actual,
+    fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
     fetchSeed: vi.fn(),
     fetchTranslations: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
@@ -34,9 +41,18 @@ const extractInjectedTranslationsPayload = (html: string): Record<string, unknow
   return JSON.parse(match[1]) as Record<string, unknown>;
 };
 
+const extractInjectedAcceptedLocales = (html: string): string[] => {
+  const match = html.match(/window\.__18WAYS_ACCEPTED_LOCALES__ = (\[.*?\]);/s);
+  if (!match?.[1]) {
+    throw new Error('Could not find injected accepted locales payload in SSR HTML');
+  }
+  return JSON.parse(match[1]) as string[];
+};
+
 describe('WaysRoot - Seed gating', () => {
   beforeEach(() => {
     resetServerInMemoryTranslations();
+    resetTestRuntimeState();
     vi.clearAllMocks();
   });
 
@@ -224,5 +240,34 @@ describe('WaysRoot - Seed gating', () => {
 
     expect(html).toContain('Hola');
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves accepted locales during server render and injects them for hydration', async () => {
+    vi.mocked(fetchAcceptedLocales).mockResolvedValue(['en-GB', 'es-ES', 'ja-JP']);
+    vi.mocked(fetchSeed).mockResolvedValue({
+      data: {},
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+
+    const html = await renderServer(
+      <React.Suspense fallback={null}>
+        <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
+          <div>Test App</div>
+        </Ways>
+      </React.Suspense>
+    );
+
+    expect(fetchAcceptedLocales).toHaveBeenCalledWith('en-GB', {
+      apiKey: 'test-api-key',
+      apiUrl: undefined,
+      origin: undefined,
+      fetcher: undefined,
+      cacheTtlSeconds: undefined,
+      _requestInitDecorator: undefined,
+    });
+    expect(extractInjectedAcceptedLocales(html)).toEqual(['en-GB', 'es-ES', 'ja-JP']);
   });
 });

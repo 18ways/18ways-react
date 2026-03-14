@@ -1,13 +1,14 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { Ways } from '../index';
-import { fetchSeed, init } from '@18ways/core/common';
+import { fetchAcceptedLocales, fetchSeed, init } from '@18ways/core/common';
 
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
     ...actual,
+    fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
     init: vi.fn(),
     fetchSeed: vi.fn().mockResolvedValue({ data: {}, errors: [] }),
   };
@@ -15,6 +16,7 @@ vi.mock('@18ways/core/common', async () => {
 
 describe('WaysRoot - Seed call behavior', () => {
   beforeEach(() => {
+    delete window.__18WAYS_ACCEPTED_LOCALES__;
     delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
     vi.clearAllMocks();
   });
@@ -64,5 +66,27 @@ describe('WaysRoot - Seed call behavior', () => {
         cacheTtlSeconds: 120,
       })
     );
+  });
+
+  it('fetches accepted locales on the client when none are provided or injected', async () => {
+    vi.mocked(fetchAcceptedLocales).mockResolvedValue(['en-GB', 'es-ES']);
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
+        <div>Test App</div>
+      </Ways>
+    );
+
+    await waitFor(() => {
+      expect(fetchAcceptedLocales).toHaveBeenCalledWith('en-GB', {
+        apiKey: 'test-api-key',
+        apiUrl: undefined,
+        origin: undefined,
+        fetcher: undefined,
+        cacheTtlSeconds: undefined,
+        _requestInitDecorator: undefined,
+      });
+      expect(window.__18WAYS_ACCEPTED_LOCALES__).toEqual(['en-GB', 'es-ES']);
+    });
   });
 });

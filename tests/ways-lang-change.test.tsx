@@ -8,6 +8,7 @@ vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
     ...actual,
+    fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
     fetchTranslations: vi.fn(),
     fetchSeed: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),

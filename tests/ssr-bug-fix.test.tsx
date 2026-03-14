@@ -10,6 +10,7 @@ describe('SSR Bug Fix Test', () => {
   beforeEach(() => {
     // Clear all mocks before each test
     vi.clearAllMocks();
+    window.__18WAYS_ACCEPTED_LOCALES__ = ['en-US', 'ja-JP'];
 
     // Mock successful translation response
     (global.fetch as any).mockResolvedValue({
