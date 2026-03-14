@@ -33,7 +33,12 @@ import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/tr
 import { registerQueueClearFn } from './testing';
 import { registerRuntimeResetFn } from './testing';
 import { decryptTranslationValues } from '@18ways/core/crypto';
-import { InternalLanguageSwitcher, type LanguageSwitcherProps } from './language-switcher';
+import {
+  InternalLanguageSwitcher,
+  type LanguageSwitcherClassNameOverrides,
+  type LanguageSwitcherProps,
+  type LanguageSwitcherStyleOverrides,
+} from './language-switcher';
 import { deepMerged } from '@18ways/core/object-utils';
 import { canonicalizeLocale, localeToFlagEmoji } from '@18ways/core/i18n-shared';
 import { create18waysEngine, type WaysEngine } from '@18ways/core/engine';
@@ -50,7 +55,30 @@ export type MessageFormatterFn = (params: {
 export type MessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 type ResolvedMessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 
-const DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = 3000;
+type WaysWindow = Window &
+  typeof globalThis & {
+    __18WAYS_IN_MEMORY_TRANSLATIONS__?: Translations;
+    __18WAYS_ACCEPTED_LOCALES__?: string[];
+  };
+
+const parsePositiveInt = (rawValue: string | undefined, fallback: number): number => {
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+};
+
+const DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
+  process.env.NEXT_PUBLIC_18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS ||
+    process.env['18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS'],
+  3000
+);
 const CONTEXT_TRANSLATION_GC_DELAY_MS = 5 * 60 * 1000;
 
 const canonicalizeLocaleCodes = (localeCodes: string[]): string[] =>
@@ -61,8 +89,10 @@ const readAcceptedLocalesFromWindow = (): string[] => {
     return [];
   }
 
-  return Array.isArray(window.__18WAYS_ACCEPTED_LOCALES__)
-    ? canonicalizeLocaleCodes(window.__18WAYS_ACCEPTED_LOCALES__)
+  const waysWindow = window as WaysWindow;
+
+  return Array.isArray(waysWindow.__18WAYS_ACCEPTED_LOCALES__)
+    ? canonicalizeLocaleCodes(waysWindow.__18WAYS_ACCEPTED_LOCALES__)
     : [];
 };
 
@@ -252,8 +282,11 @@ const seedContextTranslationsBatch = async (
   contextKeys: string[],
   targetLocale: string
 ): Promise<void> => {
-  if (typeof window !== 'undefined' && !window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
-    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
+  if (typeof window !== 'undefined') {
+    const waysWindow = window as WaysWindow;
+    if (!waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
+      waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
+    }
   }
 
   if (!contextKeys.length) {
@@ -467,11 +500,15 @@ const WaysRoot: React.FC<{
     return fallbackLocale ? [fallbackLocale] : [];
   }, [acceptedLocales, defaultLocale]);
 
-  if (typeof window !== 'undefined' && !window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
-    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
+  if (typeof window !== 'undefined') {
+    const waysWindow = window as WaysWindow;
+    if (!waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
+      waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
+    }
   }
   if (typeof window !== 'undefined' && normalizedAcceptedLocales.length > 0) {
-    window.__18WAYS_ACCEPTED_LOCALES__ = normalizedAcceptedLocales;
+    const waysWindow = window as WaysWindow;
+    waysWindow.__18WAYS_ACCEPTED_LOCALES__ = normalizedAcceptedLocales;
   }
 
   const store = engine.getStore();
@@ -1422,7 +1459,11 @@ export const useSetCurrentLocale = (): ((nextLocale: string) => void) => {
   );
 };
 
-export type { LanguageSwitcherProps } from './language-switcher';
+export type {
+  LanguageSwitcherClassNameOverrides,
+  LanguageSwitcherProps,
+  LanguageSwitcherStyleOverrides,
+} from './language-switcher';
 
 export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
   const rootContext = useContext(WaysRootContext);

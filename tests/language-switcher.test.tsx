@@ -65,6 +65,39 @@ const AppWithCrossContextLanguageSwitcher = () => {
   );
 };
 
+const AppWithDownwardLanguageSwitcher = () => {
+  const [locale, setLocale] = useState('en-GB');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <Ways context="key-1">
+        <LanguageSwitcher direction="down" currentLocale={locale} onLocaleChange={setLocale} />
+      </Ways>
+    </Ways>
+  );
+};
+
+const AppWithTailwindStyleApi = () => {
+  const [locale, setLocale] = useState('en-GB');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <Ways context="key-1">
+        <LanguageSwitcher
+          unstyled
+          classNames={{
+            button: 'tw-trigger',
+            menu: 'tw-menu',
+            label: 'tw-label',
+          }}
+          currentLocale={locale}
+          onLocaleChange={setLocale}
+        />
+      </Ways>
+    </Ways>
+  );
+};
+
 const getTriggerButton = (): HTMLButtonElement => {
   const button = document.querySelector('button[aria-haspopup="listbox"]');
   if (!button) {
@@ -219,5 +252,34 @@ describe('LanguageSwitcher', () => {
       expect(screen.getByTestId('translated-text')).toHaveTextContent('Hola');
       expect(getTriggerButton()).not.toBeDisabled();
     });
+  });
+
+  it('supports opening the menu downward', async () => {
+    render(<AppWithDownwardLanguageSwitcher />);
+
+    fireEvent.click(getTriggerButton());
+
+    const listbox = await screen.findByRole('listbox');
+    const menu = listbox.parentElement?.parentElement as HTMLDivElement | null;
+
+    expect(menu).not.toBeNull();
+    expect(menu?.style.top).toBe('calc(100% + 8px)');
+    expect(menu?.style.bottom).toBe('auto');
+  });
+
+  it('supports classNames and unstyled mode for utility CSS consumers', async () => {
+    render(<AppWithTailwindStyleApi />);
+
+    const trigger = getTriggerButton();
+    expect(trigger.className).toContain('tw-trigger');
+    expect(trigger.style.padding).toBe('');
+
+    fireEvent.click(trigger);
+
+    const listbox = await screen.findByRole('listbox');
+    const menu = listbox.parentElement?.parentElement as HTMLDivElement | null;
+
+    expect(menu?.className).toContain('tw-menu');
+    expect(trigger.querySelector('.tw-label')).not.toBeNull();
   });
 });

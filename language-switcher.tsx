@@ -5,7 +5,21 @@ import { type Language } from '@18ways/core/common';
 import { readCookieFromDocument, writeCookieToDocument } from '@18ways/core/cookie-utils';
 import { canonicalizeLocale, WAYS_LOCALE_COOKIE_NAME } from '@18ways/core/i18n-shared';
 import { internalT } from '@18ways/core/internal-i18n';
-import { languageSwitcherStyles } from './language-switcher-styles';
+import {
+  languageSwitcherStyles,
+  type LanguageSwitcherStyleKey,
+  type LanguageSwitcherStyleOverrides,
+} from './language-switcher-styles';
+
+export type { LanguageSwitcherStyleOverrides } from './language-switcher-styles';
+export type LanguageSwitcherClassNameOverrides = Partial<Record<LanguageSwitcherStyleKey, string>>;
+
+const joinClassNames = (
+  ...values: Array<string | false | null | undefined>
+): string | undefined => {
+  const joined = values.filter(Boolean).join(' ');
+  return joined || undefined;
+};
 
 const LOCALE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 // Wait long enough for locale change re-renders to enqueue translation work
@@ -16,6 +30,10 @@ const CHANGE_HARD_TIMEOUT_MS = 10000;
 export interface LanguageSwitcherProps {
   className?: string;
   style?: React.CSSProperties;
+  styles?: LanguageSwitcherStyleOverrides;
+  classNames?: LanguageSwitcherClassNameOverrides;
+  unstyled?: boolean;
+  direction?: 'up' | 'down';
   currentLocale?: string;
   onLocaleChange?: (_locale: string) => void;
   persistLocaleCookie?: boolean;
@@ -124,10 +142,129 @@ const getCompactLanguageLabel = (
 const optionIdFor = (listboxId: string, locale: string): string =>
   `${listboxId}-option-${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
-const ChevronIcon: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
+type LanguageOptionProps = {
+  currentLocale: string;
+  index: number;
+  isActive: boolean;
+  isHovered: boolean;
+  isSelected: boolean;
+  lang: Language;
+  onHover: (locale: string, nextIndex: number) => void;
+  onLeave: () => void;
+  onSelect: (locale: string) => void;
+  optionId: string;
+  styles?: LanguageSwitcherStyleOverrides;
+  classNames?: LanguageSwitcherClassNameOverrides;
+  unstyled?: boolean;
+};
+
+const mergeStyle = (
+  key: LanguageSwitcherStyleKey,
+  styles: LanguageSwitcherStyleOverrides | undefined,
+  unstyled: boolean | undefined,
+  ...conditionalOverrides: Array<React.CSSProperties | null | undefined>
+): React.CSSProperties | undefined => {
+  if (unstyled) {
+    const custom = styles?.[key];
+    return custom
+      ? { ...custom, ...Object.assign({}, ...conditionalOverrides.filter(Boolean)) }
+      : undefined;
+  }
+
+  return {
+    ...languageSwitcherStyles[key],
+    ...styles?.[key],
+    ...Object.assign({}, ...conditionalOverrides.filter(Boolean)),
+  };
+};
+
+const LanguageOption: React.FC<LanguageOptionProps> = ({
+  currentLocale,
+  index,
+  isActive,
+  isHovered,
+  isSelected,
+  lang,
+  onHover,
+  onLeave,
+  onSelect,
+  optionId,
+  styles,
+  classNames,
+  unstyled,
+}) => {
+  const localizedName = getBaseLanguageLabel(lang.code, currentLocale, lang.name || lang.code);
+  const nativeName = getCompactLanguageLabel(
+    lang.code,
+    lang.code,
+    lang.nativeName || lang.name || lang.code
+  );
+  const showSubtitle = localizedName.trim().toLowerCase() !== nativeName.trim().toLowerCase();
+
+  return (
+    <button
+      key={lang.code}
+      id={optionId}
+      type="button"
+      onClick={() => onSelect(lang.code)}
+      onMouseEnter={() => onHover(lang.code, index)}
+      onMouseLeave={onLeave}
+      className={joinClassNames(
+        classNames?.menuItem,
+        (isHovered || isActive) && !isSelected ? classNames?.menuItemHover : undefined,
+        isSelected ? classNames?.menuItemSelected : undefined
+      )}
+      style={mergeStyle(
+        'menuItem',
+        styles,
+        unstyled,
+        isHovered && !isSelected ? mergeStyle('menuItemHover', styles, unstyled) : null,
+        isActive && !isSelected ? mergeStyle('menuItemHover', styles, unstyled) : null,
+        isSelected ? mergeStyle('menuItemSelected', styles, unstyled) : null
+      )}
+      role="option"
+      aria-selected={isSelected}
+    >
+      {lang.flag && (
+        <span className={classNames?.flag} style={mergeStyle('flag', styles, unstyled)}>
+          {lang.flag}
+        </span>
+      )}
+      <div
+        className={classNames?.menuItemTextWrap}
+        style={mergeStyle('menuItemTextWrap', styles, unstyled)}
+      >
+        <div
+          className={classNames?.menuItemName}
+          style={mergeStyle('menuItemName', styles, unstyled)}
+        >
+          {localizedName}
+        </div>
+        {showSubtitle && (
+          <div
+            className={classNames?.menuItemNativeName}
+            style={mergeStyle('menuItemNativeName', styles, unstyled)}
+          >
+            {nativeName}
+          </div>
+        )}
+      </div>
+      {isSelected && (
+        <CheckIcon className={classNames?.check} style={mergeStyle('check', styles, unstyled)} />
+      )}
+    </button>
+  );
+};
+
+const ChevronIcon: React.FC<{
+  isOpen: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+}> = ({ isOpen, className, style }) => (
   <svg
+    className={className}
     style={{
-      ...languageSwitcherStyles.chevron,
+      ...style,
       transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
     }}
     xmlns="http://www.w3.org/2000/svg"
@@ -142,9 +279,13 @@ const ChevronIcon: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
   </svg>
 );
 
-const SpinnerIcon: React.FC = () => (
+const SpinnerIcon: React.FC<{ className?: string; style?: React.CSSProperties }> = ({
+  className,
+  style,
+}) => (
   <svg
-    style={languageSwitcherStyles.spinnerIcon}
+    className={className}
+    style={style}
     xmlns="http://www.w3.org/2000/svg"
     fill="none"
     viewBox="0 0 24 24"
@@ -168,9 +309,13 @@ const SpinnerIcon: React.FC = () => (
   </svg>
 );
 
-const CheckIcon: React.FC = () => (
+const CheckIcon: React.FC<{ className?: string; style?: React.CSSProperties }> = ({
+  className,
+  style,
+}) => (
   <svg
-    style={languageSwitcherStyles.check}
+    className={className}
+    style={style}
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 20 20"
     fill="currentColor"
@@ -183,69 +328,13 @@ const CheckIcon: React.FC = () => (
   </svg>
 );
 
-type LanguageOptionProps = {
-  currentLocale: string;
-  index: number;
-  isActive: boolean;
-  isHovered: boolean;
-  isSelected: boolean;
-  lang: Language;
-  onHover: (locale: string, nextIndex: number) => void;
-  onLeave: () => void;
-  onSelect: (locale: string) => void;
-  optionId: string;
-};
-
-const LanguageOption: React.FC<LanguageOptionProps> = ({
-  currentLocale,
-  index,
-  isActive,
-  isHovered,
-  isSelected,
-  lang,
-  onHover,
-  onLeave,
-  onSelect,
-  optionId,
-}) => {
-  const localizedName = getBaseLanguageLabel(lang.code, currentLocale, lang.name || lang.code);
-  const nativeName = getCompactLanguageLabel(
-    lang.code,
-    lang.code,
-    lang.nativeName || lang.name || lang.code
-  );
-  const showSubtitle = localizedName.trim().toLowerCase() !== nativeName.trim().toLowerCase();
-
-  return (
-    <button
-      key={lang.code}
-      id={optionId}
-      type="button"
-      onClick={() => onSelect(lang.code)}
-      onMouseEnter={() => onHover(lang.code, index)}
-      onMouseLeave={onLeave}
-      style={{
-        ...languageSwitcherStyles.menuItem,
-        ...(isHovered && !isSelected ? languageSwitcherStyles.menuItemHover : null),
-        ...(isActive && !isSelected ? languageSwitcherStyles.menuItemHover : null),
-        ...(isSelected ? languageSwitcherStyles.menuItemSelected : null),
-      }}
-      role="option"
-      aria-selected={isSelected}
-    >
-      {lang.flag && <span style={languageSwitcherStyles.flag}>{lang.flag}</span>}
-      <div style={languageSwitcherStyles.menuItemTextWrap}>
-        <div style={languageSwitcherStyles.menuItemName}>{localizedName}</div>
-        {showSubtitle && <div style={languageSwitcherStyles.menuItemNativeName}>{nativeName}</div>}
-      </div>
-      {isSelected && <CheckIcon />}
-    </button>
-  );
-};
-
 export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> = ({
   className,
   style,
+  styles,
+  classNames,
+  unstyled,
+  direction = 'up',
   currentLocale: controlledLocale,
   onLocaleChange,
   persistLocaleCookie = true,
@@ -527,10 +616,22 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
     activeIndex >= 0 && activeIndex < languages.length
       ? optionIdFor(listboxId, languages[activeIndex].code)
       : undefined;
+  const menuStyle =
+    direction === 'down'
+      ? {
+          ...mergeStyle('menu', styles, unstyled),
+          top: 'calc(100% + 8px)',
+          bottom: 'auto',
+        }
+      : mergeStyle('menu', styles, unstyled);
 
   return (
-    <div className={className} style={{ ...languageSwitcherStyles.wrapper, ...style }}>
-      <div style={languageSwitcherStyles.container} ref={dropdownRef}>
+    <div className={className} style={{ ...mergeStyle('wrapper', styles, unstyled), ...style }}>
+      <div
+        className={classNames?.container}
+        style={mergeStyle('container', styles, unstyled)}
+        ref={dropdownRef}
+      >
         <button
           ref={buttonRef}
           type="button"
@@ -539,11 +640,18 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
           onMouseLeave={() => setIsTriggerHovered(false)}
           onKeyDown={handleButtonKeyDown}
           disabled={isChanging}
-          style={{
-            ...languageSwitcherStyles.button,
-            ...(isTriggerHovered && !isChanging ? languageSwitcherStyles.buttonHover : null),
-            ...(isChanging ? languageSwitcherStyles.buttonChanging : null),
-          }}
+          className={joinClassNames(
+            classNames?.button,
+            isTriggerHovered && !isChanging ? classNames?.buttonHover : undefined,
+            isChanging ? classNames?.buttonChanging : undefined
+          )}
+          style={mergeStyle(
+            'button',
+            styles,
+            unstyled,
+            isTriggerHovered && !isChanging ? mergeStyle('buttonHover', styles, unstyled) : null,
+            isChanging ? mergeStyle('buttonChanging', styles, unstyled) : null
+          )}
           aria-label={internalT(currentLocale, 'selectLanguageCurrent', {
             name: currentLocaleName,
           })}
@@ -552,35 +660,59 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
           aria-controls={listboxId}
           aria-busy={isChanging}
         >
-          <div style={languageSwitcherStyles.content}>
+          <div className={classNames?.content} style={mergeStyle('content', styles, unstyled)}>
             {isChanging ? (
               <>
-                <SpinnerIcon />
-                <span style={languageSwitcherStyles.spinnerText}>{changingLanguageLabel}</span>
+                <SpinnerIcon
+                  className={classNames?.spinnerIcon}
+                  style={mergeStyle('spinnerIcon', styles, unstyled)}
+                />
+                <span
+                  className={classNames?.spinnerText}
+                  style={mergeStyle('spinnerText', styles, unstyled)}
+                >
+                  {changingLanguageLabel}
+                </span>
               </>
             ) : (
               <>
                 {currentLanguage.flag && (
-                  <span style={languageSwitcherStyles.flag}>{currentLanguage.flag}</span>
+                  <span className={classNames?.flag} style={mergeStyle('flag', styles, unstyled)}>
+                    {currentLanguage.flag}
+                  </span>
                 )}
-                <span style={languageSwitcherStyles.label}>{currentLocaleName}</span>
+                <span className={classNames?.label} style={mergeStyle('label', styles, unstyled)}>
+                  {currentLocaleName}
+                </span>
               </>
             )}
           </div>
-          {!isChanging && <ChevronIcon isOpen={isOpen} />}
+          {!isChanging && (
+            <ChevronIcon
+              isOpen={isOpen}
+              className={classNames?.chevron}
+              style={mergeStyle('chevron', styles, unstyled)}
+            />
+          )}
         </button>
 
-        <div style={languageSwitcherStyles.srOnly} aria-live="polite" aria-atomic="true">
+        <div
+          className={classNames?.srOnly}
+          style={mergeStyle('srOnly', styles, unstyled)}
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {isChanging ? changingLanguageLabel : ''}
         </div>
 
         {isOpen && !isChanging && (
-          <div style={languageSwitcherStyles.menu}>
-            <div style={languageSwitcherStyles.menuCard}>
+          <div className={classNames?.menu} style={menuStyle}>
+            <div className={classNames?.menuCard} style={mergeStyle('menuCard', styles, unstyled)}>
               <div
                 ref={listboxRef}
                 id={listboxId}
-                style={languageSwitcherStyles.menuList}
+                className={classNames?.menuList}
+                style={mergeStyle('menuList', styles, unstyled)}
                 role="listbox"
                 aria-label={internalT(currentLocale, 'availableLanguages')}
                 aria-activedescendant={activeOptionId}
@@ -608,6 +740,9 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
                       onLeave={() => setHoveredOptionCode(null)}
                       onSelect={handleLanguageChange}
                       optionId={optionIdFor(listboxId, lang.code)}
+                      styles={styles}
+                      classNames={classNames}
+                      unstyled={unstyled}
                     />
                   );
                 })}

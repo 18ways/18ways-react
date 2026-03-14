@@ -2,7 +2,7 @@ import type React from 'react';
 
 const SWITCHER_MENU_Z_INDEX = 50;
 
-type LanguageSwitcherStyleKey =
+export type LanguageSwitcherStyleKey =
   | 'wrapper'
   | 'container'
   | 'button'
@@ -25,6 +25,10 @@ type LanguageSwitcherStyleKey =
   | 'check'
   | 'spinnerIcon'
   | 'srOnly';
+
+export type LanguageSwitcherStyleOverrides = Partial<
+  Record<LanguageSwitcherStyleKey, React.CSSProperties>
+>;
 
 export const languageSwitcherStyles: Record<LanguageSwitcherStyleKey, React.CSSProperties> = {
   wrapper: {
