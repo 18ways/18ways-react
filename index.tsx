@@ -57,12 +57,6 @@ export type MessageFormatterFn = (params: {
 export type MessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 type ResolvedMessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 
-type WaysWindow = Window &
-  typeof globalThis & {
-    __18WAYS_IN_MEMORY_TRANSLATIONS__?: Translations;
-    __18WAYS_ACCEPTED_LOCALES__?: string[];
-  };
-
 const parsePositiveInt = (rawValue: string | undefined, fallback: number): number => {
   if (!rawValue) {
     return fallback;
@@ -330,9 +324,8 @@ const seedContextTranslationsBatch = async (
   targetLocale: string
 ): Promise<void> => {
   if (typeof window !== 'undefined') {
-    const waysWindow = window as WaysWindow;
-    if (!waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
-      waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
+    if (!window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
+      window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
     }
   }
 
@@ -681,9 +674,8 @@ const WaysRoot: React.FC<{
     runtimeAcceptedLocales.length > 0;
 
   if (typeof window !== 'undefined') {
-    const waysWindow = window as WaysWindow;
-    if (!waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
-      waysWindow.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
+    if (!window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
+      window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
     }
   }
   if (
@@ -691,8 +683,7 @@ const WaysRoot: React.FC<{
     hasResolvedAcceptedLocales &&
     normalizedAcceptedLocales.length > 0
   ) {
-    const waysWindow = window as WaysWindow;
-    waysWindow.__18WAYS_ACCEPTED_LOCALES__ = normalizedAcceptedLocales;
+    window.__18WAYS_ACCEPTED_LOCALES__ = normalizedAcceptedLocales;
   }
 
   const store = engine.getStore();
