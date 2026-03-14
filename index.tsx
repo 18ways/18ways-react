@@ -197,6 +197,7 @@ interface ContextType {
   queueTranslation: (entry: ContextualTranslateTextParams) => boolean;
   getFallbackLocale: () => string;
   getPendingSeedPromise: SeedPromiseLookup;
+  hasPendingClientLocaleTransition: boolean;
   baseLocale?: string;
   targetLocale: string;
   components?: ComponentsMap;
@@ -708,6 +709,7 @@ const WaysRoot: React.FC<{
     const fallbackLocale = readTransitionFallbackLocale();
     return fallbackLocale && fallbackLocale !== defaultLocale ? fallbackLocale : null;
   });
+  const [seedResolutionVersion, setSeedResolutionVersion] = useState(0);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -779,6 +781,9 @@ const WaysRoot: React.FC<{
           contextKeys.forEach((contextKey) => {
             resolveSeedPromiseFor(contextKey, locale);
           });
+          if (typeof window !== 'undefined') {
+            setSeedResolutionVersion((version) => version + 1);
+          }
         }
       })
     );
@@ -856,14 +861,7 @@ const WaysRoot: React.FC<{
     () => pendingSeedPromisesRef.current.size > 0 || isSeedFlushScheduledRef.current,
     []
   );
-  const hasActiveTransitionWork =
-    loadingSnapshot.hasPending ||
-    loadingSnapshot.hasInFlight ||
-    pendingSeedPromisesRef.current.size > 0 ||
-    isSeedFlushScheduledRef.current;
-  const effectiveTransitionFallbackLocale = hasActiveTransitionWork
-    ? transitionFallbackLocale
-    : null;
+  const effectiveTransitionFallbackLocale = transitionFallbackLocale;
 
   useEffect(() => {
     if (previousTargetLocaleRef.current !== targetLocale) {
@@ -875,7 +873,12 @@ const WaysRoot: React.FC<{
   }, [targetLocale]);
 
   useEffect(() => {
-    if (hasActiveTransitionWork) {
+    const hasLiveTransitionWork =
+      store.hasPendingRequests() ||
+      store.hasInFlightRequests() ||
+      pendingSeedPromisesRef.current.size > 0 ||
+      isSeedFlushScheduledRef.current;
+    if (hasLiveTransitionWork) {
       return;
     }
 
@@ -884,9 +887,10 @@ const WaysRoot: React.FC<{
     }
     writeTransitionFallbackLocale(targetLocale);
   }, [
-    hasActiveTransitionWork,
     loadingSnapshot.hasInFlight,
     loadingSnapshot.hasPending,
+    seedResolutionVersion,
+    store,
     targetLocale,
     transitionFallbackLocale,
   ]);
@@ -967,6 +971,10 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
     shouldBlockInitialRender &&
     contextKey !== 'root' &&
     (typeof window === 'undefined' || hasLocaleChanged);
+  const hasPendingClientLocaleTransition =
+    typeof window !== 'undefined' &&
+    (hasLocaleChanged ||
+      Boolean(rootTransitionFallbackLocale && rootTransitionFallbackLocale !== targetLocale));
   const ensuredSeedPromise = shouldEnsureSeedPromise
     ? ensureSeedPromise(contextKey, targetLocale)
     : null;
@@ -1065,6 +1073,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
           queueTranslation,
           getFallbackLocale,
           getPendingSeedPromise,
+          hasPendingClientLocaleTransition,
           baseLocale,
           targetLocale,
           components,
@@ -1387,6 +1396,7 @@ export const useT = ({
         queueTranslation,
         getFallbackLocale,
         getPendingSeedPromise,
+        hasPendingClientLocaleTransition,
         baseLocale: cBaseLocale,
         targetLocale: cTargetLocale,
         components: cComponents,
@@ -1473,8 +1483,9 @@ export const useT = ({
           }
         };
 
+        const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
+        const fallbackLocale = getFallbackLocale();
         const getFallbackTranslation = (): string[] | null => {
-          const fallbackLocale = getFallbackLocale();
           if (!fallbackLocale || fallbackLocale === targetLocale) {
             return null;
           }
@@ -1504,14 +1515,20 @@ export const useT = ({
         };
 
         const fallbackTranslation = getFallbackTranslation();
-        const shouldHoldTargetLocaleDisplay =
-          typeof window !== 'undefined' &&
-          Boolean(
-            rootContext.transitionFallbackLocale &&
-            rootContext.transitionFallbackLocale !== targetLocale
-          );
+        const shouldHoldTargetLocaleDisplay = (): boolean => {
+          if (typeof window === 'undefined' || !fallbackLocale || fallbackLocale === targetLocale) {
+            return false;
+          }
 
-        if (!shouldHoldTargetLocaleDisplay) {
+          return Boolean(
+            hasPendingClientLocaleTransition ||
+            pendingSeedPromise ||
+            store.hasPendingRequestsForKey(effectiveContextKey) ||
+            store.hasInFlightRequestsForKey(effectiveContextKey)
+          );
+        };
+
+        if (!shouldHoldTargetLocaleDisplay()) {
           const cachedVal = store.getTranslation(targetLocale, effectiveContextKey, textsHash);
           if (cachedVal) {
             const decrypted = decryptCachedTranslation(cachedVal, targetLocale);
@@ -1521,9 +1538,11 @@ export const useT = ({
           }
         }
 
-        const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
         if (pendingSeedPromise) {
           if (!suspend && typeof window !== 'undefined') {
+            return fallbackTranslation || texts;
+          }
+          if (shouldHoldTargetLocaleDisplay()) {
             return fallbackTranslation || texts;
           }
           if (isRenderingSuspenseFallback) {
@@ -1548,7 +1567,7 @@ export const useT = ({
           contextMetadata: finalContextMetadata,
         });
 
-        if (shouldHoldTargetLocaleDisplay) {
+        if (shouldHoldTargetLocaleDisplay()) {
           return fallbackTranslation || texts;
         }
 
@@ -1610,14 +1629,7 @@ export const useT = ({
 
       return applyRecursiveTextMap(children);
     }) as TFunction,
-    [
-      context,
-      isRenderingSuspenseFallback,
-      rootContext.transitionFallbackLocale,
-      storeSnapshot.version,
-      tBaseLocale,
-      tTargetLocale,
-    ]
+    [context, isRenderingSuspenseFallback, storeSnapshot.version, tBaseLocale, tTargetLocale]
   );
 
   return t;

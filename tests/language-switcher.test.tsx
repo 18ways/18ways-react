@@ -141,6 +141,10 @@ describe('LanguageSwitcher', () => {
     expect(document.cookie).toContain('18ways_locale=es-ES');
     expect(screen.getAllByText(internalT('es-ES', 'changingLanguage')).length).toBeGreaterThan(0);
 
+    await waitFor(() => {
+      expect(fetchTranslations).toHaveBeenCalledTimes(1);
+    });
+
     await act(async () => {
       deferred.resolve({
         data: [

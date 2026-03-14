@@ -102,6 +102,21 @@ const CachedLocaleReturnApp = () => {
   );
 };
 
+const RepeatedSeededLocaleSwitchApp = () => {
+  const [locale, setLocale] = useState('fr-FR');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <button onClick={() => setLocale('ja-JP')}>Switch to ja</button>
+      <button onClick={() => setLocale('es-ES')}>Switch to es</button>
+      <button onClick={() => setLocale('fr-FR')}>Switch to fr</button>
+      <Ways context="key-1">
+        <T>Hello</T>
+      </Ways>
+    </Ways>
+  );
+};
+
 const PageWideAtomicTransitionApp = () => {
   const [locale, setLocale] = useState('fr-FR');
 
@@ -113,6 +128,38 @@ const PageWideAtomicTransitionApp = () => {
       </Ways>
       <Ways context="footer">
         <T>Goodbye</T>
+      </Ways>
+    </Ways>
+  );
+};
+
+const StableScopeChild = ({ lifecycle }: { lifecycle: { mounts: number; unmounts: number } }) => {
+  const mountId = React.useRef(`mount-${Math.random().toString(36).slice(2)}`);
+
+  React.useEffect(() => {
+    lifecycle.mounts += 1;
+
+    return () => {
+      lifecycle.unmounts += 1;
+    };
+  }, [lifecycle]);
+
+  return <div data-testid="stable-scope-child">{mountId.current}</div>;
+};
+
+const StableScopeDuringLocaleChangeApp = ({
+  lifecycle,
+}: {
+  lifecycle: { mounts: number; unmounts: number };
+}) => {
+  const [locale, setLocale] = useState('fr-FR');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <button onClick={() => setLocale('ja-JP')}>Switch locale</button>
+      <Ways context="key-1">
+        <StableScopeChild lifecycle={lifecycle} />
+        <T>Hello</T>
       </Ways>
     </Ways>
   );
@@ -282,6 +329,60 @@ describe('useTranslationLoading', () => {
     expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
   });
 
+  it('updates correctly across repeated client locale changes when translations come from seed data', async () => {
+    vi.mocked(fetchSeed).mockImplementation(async (_contextKeys, locale) => {
+      if (locale === 'ja-JP') {
+        return {
+          data: {
+            'key-1': {
+              '["Hello","key-1"]': ['こんにちは'],
+            },
+          },
+        };
+      }
+
+      if (locale === 'es-ES') {
+        return {
+          data: {
+            'key-1': {
+              '["Hello","key-1"]': ['Hola'],
+            },
+          },
+        };
+      }
+
+      return { data: {} };
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+
+    render(<RepeatedSeededLocaleSwitchApp />);
+
+    expect(screen.getByText('Bonjour')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Switch to ja'));
+    await waitFor(() => {
+      expect(screen.getByText('こんにちは')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Switch to es'));
+    await waitFor(() => {
+      expect(screen.getByText('Hola')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Switch to fr'));
+    await waitFor(() => {
+      expect(screen.getByText('Bonjour')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Switch to ja'));
+    await waitFor(() => {
+      expect(screen.getByText('こんにちは')).toBeInTheDocument();
+    });
+  });
+
   it('holds the previous locale across the page until every pending context for the next locale settles', async () => {
     const deferred = createDeferred<any>();
 
@@ -339,5 +440,73 @@ describe('useTranslationLoading', () => {
       expect(getBodyText()).toContain('こんにちは');
       expect(getBodyText()).toContain('さようなら');
     });
+  });
+
+  it('keeps an already mounted Ways scope mounted while locale seed work is pending', async () => {
+    const seedDeferred = createDeferred<any>();
+    const translationDeferred = createDeferred<any>();
+    const lifecycle = { mounts: 0, unmounts: 0 };
+
+    vi.mocked(fetchSeed).mockReturnValue(seedDeferred.promise);
+    vi.mocked(fetchTranslations).mockReturnValue(translationDeferred.promise);
+
+    render(<StableScopeDuringLocaleChangeApp lifecycle={lifecycle} />);
+
+    expect(screen.getByText('Bonjour')).toBeInTheDocument();
+    expect(lifecycle).toEqual({ mounts: 1, unmounts: 0 });
+
+    const initialMarker = screen.getByTestId('stable-scope-child');
+    const initialMountId = initialMarker.textContent;
+
+    fireEvent.click(screen.getByText('Switch locale'));
+
+    await waitFor(() => {
+      expect(fetchSeed).toHaveBeenCalledWith(['key-1'], 'ja-JP');
+    });
+
+    expect(screen.getByText('Bonjour')).toBeInTheDocument();
+    expect(screen.getByTestId('stable-scope-child')).toBe(initialMarker);
+    expect(screen.getByTestId('stable-scope-child').textContent).toBe(initialMountId);
+    expect(lifecycle).toEqual({ mounts: 1, unmounts: 0 });
+
+    await act(async () => {
+      seedDeferred.resolve({
+        data: {},
+      });
+      await seedDeferred.promise;
+    });
+
+    await waitFor(() => {
+      expect(fetchTranslations).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText('Bonjour')).toBeInTheDocument();
+    expect(screen.getByTestId('stable-scope-child')).toBe(initialMarker);
+    expect(screen.getByTestId('stable-scope-child').textContent).toBe(initialMountId);
+    expect(lifecycle).toEqual({ mounts: 1, unmounts: 0 });
+
+    await act(async () => {
+      translationDeferred.resolve({
+        data: [
+          {
+            locale: 'ja-JP',
+            key: 'key-1',
+            textsHash: '["Hello","key-1"]',
+            translation: ['こんにちは'],
+          },
+        ],
+        errors: [],
+      });
+      await translationDeferred.promise;
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('こんにちは')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('stable-scope-child')).toBe(initialMarker);
+    expect(screen.getByTestId('stable-scope-child').textContent).toBe(initialMountId);
+    expect(lifecycle).toEqual({ mounts: 1, unmounts: 0 });
   });
 });
