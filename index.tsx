@@ -12,7 +12,6 @@ import React, {
   createContext,
   Suspense,
   ReactNode,
-  ReactElement,
 } from 'react';
 import { XMLParser } from 'fast-xml-parser';
 import {
@@ -28,6 +27,7 @@ import {
   type TranslationContextInputObject,
   type TranslationContextValue,
 } from '@18ways/core/common';
+import { parseRichTextMarkupAgainstSource } from '@18ways/core/rich-text';
 import { InjectTranslations } from './inject';
 import { formatWaysParser } from '@18ways/core/parsers/ways-parser';
 import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/translation-store';
@@ -44,6 +44,7 @@ import {
 import { deepMerged } from '@18ways/core/object-utils';
 import { canonicalizeLocale, localeToFlagEmoji } from '@18ways/core/i18n-shared';
 import { create18waysEngine, type WaysEngine } from '@18ways/core/engine';
+import { extractTranslationMessage, renderRichTextValue } from './rich-text';
 
 export { fetchAcceptedLocales, fetchEnabledLanguages, resolveOrigin } from '@18ways/core/common';
 export type { Language, Translations } from '@18ways/core/common';
@@ -1415,26 +1416,9 @@ export const useT = ({
         throw new Error('targetLocale is required');
       }
 
-      const getRecursiveText = (node: ReactNode | string): string[] => {
-        if (typeof node === 'string' || typeof node === 'number') {
-          return [node.toString()];
-        }
-
-        if (Array.isArray(node)) {
-          return node.flatMap(getRecursiveText);
-        }
-
-        if (React.isValidElement(node) && node.props && (node.props as any).children) {
-          return React.Children.map(
-            (node.props as any).children,
-            getRecursiveText
-          )?.flat() as string[];
-        }
-
-        return [];
-      };
-
-      const texts = getRecursiveText(children);
+      const extractedMessage = extractTranslationMessage(children, components);
+      const texts =
+        extractedMessage.kind === 'plain' ? extractedMessage.texts : [extractedMessage.markup];
 
       const translatedTexts = (() => {
         if (
@@ -1518,8 +1502,6 @@ export const useT = ({
             return null;
           }
 
-          // Prefer previous-locale text when available, but preserve source/base text
-          // for any slots the previous locale does not yet cover.
           return texts.map((text, index) => decryptedFallback[index] || text);
         };
 
@@ -1622,36 +1604,41 @@ export const useT = ({
         return texts;
       })();
 
-      const textMap = Object.fromEntries(
-        texts.map((text, index) => [text, translatedTexts[index]])
+      if (extractedMessage.kind === 'rich') {
+        const translatedMarkup = translatedTexts[0] || extractedMessage.markup;
+        const parsedTranslatedMarkup = parseRichTextMarkupAgainstSource(
+          translatedMarkup,
+          extractedMessage.value
+        );
+        const valueToRender = parsedTranslatedMarkup.value || extractedMessage.value;
+
+        if (parsedTranslatedMarkup.error) {
+          console.error(
+            '[18ways] Invalid rich text translation markup:',
+            parsedTranslatedMarkup.error
+          );
+        }
+
+        return renderRichTextValue({
+          value: valueToRender,
+          slotRenderers: extractedMessage.slotRenderers,
+          renderText: (text) =>
+            applyComponentsToText(
+              components,
+              formatWithMessageFormatter(messageFormatter || 'waysParser', vars, text, targetLocale)
+            ),
+        });
+      }
+
+      const translatedText = translatedTexts[0] ?? texts[0] ?? '';
+      const textWithVars = formatWithMessageFormatter(
+        messageFormatter || 'waysParser',
+        vars,
+        translatedText,
+        targetLocale
       );
 
-      const applyRecursiveTextMap = (node: ReactNode | string, i?: number): string | ReactNode => {
-        if (typeof node === 'string' || typeof node === 'number') {
-          const textWithVars = formatWithMessageFormatter(
-            messageFormatter || 'waysParser',
-            vars,
-            (textMap[node] || node).toString(),
-            targetLocale
-          );
-          return applyComponentsToText(components, textWithVars);
-        }
-
-        if (Array.isArray(node)) {
-          return node.map(applyRecursiveTextMap);
-        }
-
-        if (React.isValidElement(node) && node.props && (node.props as any).children) {
-          return React.cloneElement(node as ReactElement<any>, {
-            key: node.key || i || 0,
-            children: applyRecursiveTextMap((node.props as any).children),
-          });
-        }
-
-        return node;
-      };
-
-      return applyRecursiveTextMap(children);
+      return applyComponentsToText(components, textWithVars);
     }) as TFunction,
     [context, isRenderingSuspenseFallback, storeSnapshot.version, tBaseLocale, tTargetLocale]
   );
