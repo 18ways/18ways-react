@@ -22,12 +22,7 @@ export function App() {
   const [locale, setLocale] = useState('fr-FR');
 
   return (
-    <Ways
-      apiKey="pk_live_GET_ME_FROM_YOUR_DASHBOARD_..."
-      locale={locale}
-      baseLocale="en-GB"
-      context="app"
-    >
+    <Ways apiKey="YOUR_18WAYS_PUBLIC_API_KEY" locale={locale} baseLocale="en-GB" context="app">
       <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
       <Ways context="checkout.button">
         <T>Pay now</T>
