@@ -55,6 +55,13 @@ import { deepMerged } from '@18ways/core/object-utils';
 import { canonicalizeLocale, localeToFlagEmoji } from '@18ways/core/i18n-shared';
 import { create18waysEngine, type WaysEngine } from '@18ways/core/engine';
 import { extractTranslationMessage, renderRichTextValue } from './rich-text';
+import {
+  getDomSnapshotOverrideVersion,
+  getDomSnapshotTranslationOverride,
+  recordDomSnapshotRenderedTranslation,
+  startDomSnapshotRuntime,
+  subscribeDomSnapshotOverrideVersion,
+} from './dom-snapshots';
 
 export { fetchAcceptedLocales, fetchConfig, resolveOrigin } from '@18ways/core/common';
 export type { Language, Translations } from '@18ways/core/common';
@@ -836,6 +843,25 @@ const WaysRoot: React.FC<{
     });
     previousLoggedDemoLocaleRef.current = targetLocale;
   }, [apiKey, defaultLocale, resolvedBaseLocale, targetLocale]);
+
+  useEffect(() => {
+    return startDomSnapshotRuntime({
+      apiKey,
+      apiUrl: _apiUrl,
+      requestOrigin,
+      requestInitDecorator,
+      getTargetLocale: () => targetLocale,
+      getBaseLocale: () => canonicalizeLocale(baseLocale || defaultLocale),
+    });
+  }, [
+    apiKey,
+    _apiUrl,
+    requestOrigin,
+    requestInitDecorator,
+    targetLocale,
+    baseLocale,
+    defaultLocale,
+  ]);
 
   useEffect(() => {
     if (!locale) {
@@ -1691,6 +1717,11 @@ export const useT = ({
     context?.store ? context.store.getTranslationsSnapshot : getEmptyStoreSnapshot,
     context?.store ? context.store.getTranslationsSnapshot : getEmptyStoreSnapshot
   );
+  const domSnapshotOverrideVersion = useSyncExternalStore(
+    subscribeDomSnapshotOverrideVersion,
+    getDomSnapshotOverrideVersion,
+    getDomSnapshotOverrideVersion
+  );
 
   const t = useCallback<TFunction>(
     ((
@@ -1729,6 +1760,12 @@ export const useT = ({
       const extractedMessage = extractTranslationMessage(children, components);
       const sourceText =
         extractedMessage.kind === 'plain' ? extractedMessage.text : extractedMessage.markup;
+      let domSnapshotIdentity: {
+        locale: string;
+        key: string;
+        textHash: string;
+        contextFingerprint?: string;
+      } | null = null;
 
       const translatedText = (() => {
         if (
@@ -1762,6 +1799,12 @@ export const useT = ({
         const effectiveContextKey = finalContextMetadata.name || contextKey;
         const contextFingerprint = generateHashId(finalContextMetadata);
         const textHash = generateHashId([sourceText, effectiveContextKey]);
+        domSnapshotIdentity = {
+          locale: targetLocale,
+          key: effectiveContextKey,
+          textHash,
+          contextFingerprint,
+        };
         const decryptCachedTranslation = (
           encryptedText: string,
           localeToDecrypt: string
@@ -1904,8 +1947,30 @@ export const useT = ({
         return noTranslationFallback;
       })();
 
+      if (domSnapshotIdentity) {
+        recordDomSnapshotRenderedTranslation({
+          ...domSnapshotIdentity,
+          sourceTexts: [sourceText],
+          translatedTexts: [translatedText.toString()],
+          visibleTexts: [
+            formatWithMessageFormatter(
+              resolvedMessageFormatter,
+              vars,
+              translatedText.toString(),
+              targetLocale
+            ),
+          ],
+        });
+      }
+
+      const domSnapshotOverride =
+        domSnapshotIdentity && targetLocale
+          ? getDomSnapshotTranslationOverride(domSnapshotIdentity)
+          : null;
+      const effectiveTranslatedText = domSnapshotOverride?.[0] ?? translatedText;
+
       if (extractedMessage.kind === 'rich') {
-        const translatedMarkup = translatedText || extractedMessage.markup;
+        const translatedMarkup = effectiveTranslatedText || extractedMessage.markup;
         const parsedTranslatedMarkup = parseRichTextMarkupAgainstSource(
           translatedMarkup,
           extractedMessage.value
@@ -1933,13 +1998,20 @@ export const useT = ({
       const textWithVars = formatWithMessageFormatter(
         resolvedMessageFormatter,
         vars,
-        translatedText,
+        effectiveTranslatedText,
         targetLocale
       );
 
       return applyComponentsToText(components, textWithVars);
     }) as TFunction,
-    [context, isRenderingSuspenseFallback, storeSnapshot.version, tBaseLocale, tTargetLocale]
+    [
+      context,
+      domSnapshotOverrideVersion,
+      isRenderingSuspenseFallback,
+      storeSnapshot.version,
+      tBaseLocale,
+      tTargetLocale,
+    ]
   );
 
   return t;

@@ -32,7 +32,8 @@
   },
   "dependencies": {
     "@18ways/core": "*",
-    "fast-xml-parser": "^4.4.1"
+    "fast-xml-parser": "^4.4.1",
+    "rrweb-snapshot": "^1.1.14"
   },
   "peerDependencies": {
     "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0",
