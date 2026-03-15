@@ -297,17 +297,19 @@ class DomSnapshotRuntime {
 
   start = (): void => {
     this.unsubscribeNetwork = subscribeRuntimeNetworkEvents(this.onNetworkEvent);
-    this.mutationObserver = new MutationObserver(() => {
-      if (this.ignoreMutations || !this.translationIdsToCapture.size) {
-        return;
-      }
-      this.scheduleCapture();
-    });
-    this.mutationObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
+    if (typeof MutationObserver === 'function') {
+      this.mutationObserver = new MutationObserver(() => {
+        if (this.ignoreMutations || !this.translationIdsToCapture.size) {
+          return;
+        }
+        this.scheduleCapture();
+      });
+      this.mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
   };
 
   stop = (): void => {
