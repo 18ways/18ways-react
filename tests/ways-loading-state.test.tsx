@@ -381,6 +381,8 @@ describe('useTranslationLoading', () => {
     await waitFor(() => {
       expect(screen.getByText('こんにちは')).toBeInTheDocument();
     });
+
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
   });
 
   it('holds the previous locale across the page until every pending context for the next locale settles', async () => {

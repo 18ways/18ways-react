@@ -55,17 +55,17 @@ describe('WaysRoot - Locale Changes', () => {
   });
 
   it('should switch locale and update translations', async () => {
-    vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [
-        {
-          locale: 'es-ES',
-          key: 'key-1',
-          textsHash: '["Hello","key-1"]',
-          translation: ['Hola'],
-        },
-      ],
+    vi.mocked(fetchTranslations).mockImplementation(async (entries) => ({
+      data: entries.map((entry) => ({
+        locale: entry.targetLocale,
+        key: entry.key,
+        textsHash: entry.textsHash,
+        contextFingerprint: entry.contextFingerprint ?? null,
+        translationId: 'group-1',
+        translation: [entry.targetLocale === 'es-ES' ? 'Hola' : 'Hello'],
+      })),
       errors: [],
-    });
+    }));
 
     render(<LocaleTestApp />);
 
@@ -78,10 +78,17 @@ describe('WaysRoot - Locale Changes', () => {
     });
 
     expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES');
-    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
     const seedOrder = vi.mocked(fetchSeed).mock.invocationCallOrder[0];
-    const translateOrder = vi.mocked(fetchTranslations).mock.invocationCallOrder[0];
-    expect(seedOrder).toBeLessThan(translateOrder);
+    const switchTranslateOrder = vi
+      .mocked(fetchTranslations)
+      .mock.calls.findIndex((calls) =>
+        calls[0]?.some((entry) => entry.targetLocale === 'es-ES' && !entry.syncOnly)
+      );
+
+    expect(switchTranslateOrder).toBeGreaterThanOrEqual(0);
+    expect(seedOrder).toBeLessThan(
+      vi.mocked(fetchTranslations).mock.invocationCallOrder[switchTranslateOrder]
+    );
   });
 
   it('updates nested contexts when locale prop changes without remounting', async () => {

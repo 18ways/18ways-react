@@ -270,7 +270,78 @@ describe('WaysRoot - Context Nesting', () => {
     );
   });
 
-  it('queues a one-time background sync when serving a cached translation for a new fingerprint', async () => {
+  it('queues a one-time background sync in the base locale when the server is not aware of the fingerprint yet', async () => {
+    const key = 'cta.button-label';
+    const textsHash = '["Open","cta.button-label"]';
+    const encryptedTranslation = encryptTranslationValues({
+      translatedTexts: ['Open'],
+      sourceTexts: ['Open'],
+      locale: 'en-US',
+      key,
+      textsHash,
+    });
+
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'en-US',
+          key,
+          textsHash,
+          contextFingerprint: JSON.stringify({
+            name: key,
+            label: '',
+            treePath: '',
+            filePath: '',
+          }),
+          translationId: 'group-1',
+          translation: encryptedTranslation,
+        },
+      ],
+      errors: [],
+    });
+
+    const { rerender } = render(
+      <Ways apiKey="test-api-key" locale="en-US" baseLocale="en-US" context="cta">
+        <T context="button-label">Open</T>
+      </Ways>
+    );
+
+    expect(screen.getByText('Open')).toBeInTheDocument();
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchTranslations).mock.calls[0]?.[0]?.[0]).toEqual(
+      expect.objectContaining({
+        key,
+        textsHash,
+        targetLocale: 'en-US',
+        contextFingerprint: JSON.stringify({
+          name: key,
+          label: '',
+          treePath: '',
+          filePath: '',
+        }),
+        syncOnly: true,
+      })
+    );
+
+    rerender(
+      <Ways apiKey="test-api-key" locale="en-US" baseLocale="en-US" context="cta">
+        <T context="button-label">Open</T>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not queue a background sync when a translated locale is already satisfied from cache', async () => {
     const key = 'cta.button-label';
     const textsHash = '["Open","cta.button-label"]';
     const encryptedTranslation = encryptTranslationValues({
@@ -290,25 +361,11 @@ describe('WaysRoot - Context Nesting', () => {
     };
 
     vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [
-        {
-          locale: 'es-ES',
-          key,
-          textsHash,
-          contextFingerprint: JSON.stringify({
-            name: key,
-            label: '',
-            treePath: '',
-            filePath: '',
-          }),
-          translationId: 'group-1',
-          translation: encryptedTranslation,
-        },
-      ],
+      data: [],
       errors: [],
     });
 
-    const { rerender } = render(
+    render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="cta">
         <T context="button-label">Open</T>
       </Ways>
@@ -320,32 +377,6 @@ describe('WaysRoot - Context Nesting', () => {
       await clearQueueForTests();
     });
 
-    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(fetchTranslations).mock.calls[0]?.[0]?.[0]).toEqual(
-      expect.objectContaining({
-        key,
-        textsHash,
-        targetLocale: 'es-ES',
-        contextFingerprint: JSON.stringify({
-          name: key,
-          label: '',
-          treePath: '',
-          filePath: '',
-        }),
-        syncOnly: true,
-      })
-    );
-
-    rerender(
-      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="cta">
-        <T context="button-label">Open</T>
-      </Ways>
-    );
-
-    await act(async () => {
-      await clearQueueForTests();
-    });
-
-    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
   });
 });

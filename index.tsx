@@ -1447,10 +1447,6 @@ export const useT = ({
           return texts;
         }
 
-        if (baseLocale && targetLocale && baseLocale === targetLocale) {
-          return texts;
-        }
-
         const baseContextMetadata: TranslationContextValue = contextMetadata || {
           name: contextKey,
           label: '',
@@ -1483,6 +1479,20 @@ export const useT = ({
         };
 
         const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
+        const syncOnlyEntry: ContextualTranslateTextParams = {
+          key: effectiveContextKey,
+          textsHash,
+          baseLocale,
+          targetLocale,
+          texts,
+          contextFingerprint,
+          contextMetadata: finalContextMetadata,
+          syncOnly: true,
+        };
+        const shouldQueueBaseLocaleSync =
+          typeof window !== 'undefined' &&
+          Boolean(baseLocale && targetLocale && baseLocale === targetLocale) &&
+          !store.hasCompletedEntry(syncOnlyEntry);
         const fallbackLocale = getFallbackLocale();
         const getFallbackTranslation = (): string[] | null => {
           if (!fallbackLocale || fallbackLocale === targetLocale) {
@@ -1513,6 +1523,13 @@ export const useT = ({
           return texts.map((text, index) => decryptedFallback[index] || text);
         };
 
+        if (baseLocale && targetLocale && baseLocale === targetLocale) {
+          if (shouldQueueBaseLocaleSync) {
+            queueTranslation(syncOnlyEntry);
+          }
+          return texts;
+        }
+
         const fallbackTranslation = getFallbackTranslation();
         const shouldHoldTargetLocaleDisplay = (): boolean => {
           if (typeof window === 'undefined' || !fallbackLocale || fallbackLocale === targetLocale) {
@@ -1540,18 +1557,6 @@ export const useT = ({
           if (cachedVal) {
             const decrypted = decryptCachedTranslation(cachedVal, targetLocale);
             if (decrypted) {
-              if (typeof window !== 'undefined') {
-                queueTranslation({
-                  key: effectiveContextKey,
-                  textsHash,
-                  baseLocale,
-                  targetLocale,
-                  texts,
-                  contextFingerprint,
-                  contextMetadata: finalContextMetadata,
-                  syncOnly: true,
-                });
-              }
               return decrypted;
             }
           }

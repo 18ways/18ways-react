@@ -62,7 +62,7 @@ describe('SSR Bug Fix Test', () => {
     expect(requestBody.payload[0].baseLocale).toBe('en-US');
   });
 
-  it('should NOT trigger translation fetch when targetLocale equals baseLocale', async () => {
+  it('queues only a sync-only fetch when targetLocale equals baseLocale', async () => {
     const TestComponent = () => {
       return (
         <Ways apiKey="test-key" locale="en-US" baseLocale="en-US">
@@ -77,10 +77,16 @@ describe('SSR Bug Fix Test', () => {
 
     render(<TestComponent />);
 
-    // Wait a bit to ensure effect has time to run
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
 
-    // Should NOT have triggered a translation fetch since locale is the same
-    expect(global.fetch).not.toHaveBeenCalled();
+    const fetchCall = (global.fetch as any).mock.calls[0];
+    expect(fetchCall[0]).toContain('/translate');
+
+    const requestBody = JSON.parse(fetchCall[1].body);
+    expect(requestBody.payload[0].targetLocale).toBe('en-US');
+    expect(requestBody.payload[0].baseLocale).toBe('en-US');
+    expect(requestBody.payload[0].syncOnly).toBe(true);
   });
 });
