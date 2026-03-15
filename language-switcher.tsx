@@ -36,10 +36,10 @@ export interface LanguageSwitcherProps {
   direction?: 'up' | 'down';
   currentLocale?: string;
   onLocaleChange?: (_locale: string) => void;
-  persistLocaleCookie?: boolean;
 }
 
 export interface InternalLanguageSwitcherProps extends LanguageSwitcherProps {
+  persistLocaleCookie: boolean;
   rootLocale: string;
   hasRootStore: boolean;
   isTranslationLoading: boolean;
@@ -337,7 +337,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   direction = 'up',
   currentLocale: controlledLocale,
   onLocaleChange,
-  persistLocaleCookie = true,
+  persistLocaleCookie,
   rootLocale,
   hasRootStore,
   isTranslationLoading,

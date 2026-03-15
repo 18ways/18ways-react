@@ -290,6 +290,7 @@ export interface WaysRootProps {
   locale?: string;
   children: ReactNode;
   baseLocale?: string;
+  persistLocaleCookie?: boolean;
   cacheTtl?: number;
   messageFormatter?: MessageFormatter;
   fetcher?: typeof fetch;
@@ -457,6 +458,7 @@ type WaysRootContextType = {
   transitionFallbackLocale: string | null;
   defaultLocale: string;
   baseLocale?: string;
+  persistLocaleCookie: boolean;
   acceptedLocales: string[];
   messageFormatter: ResolvedMessageFormatter;
   serverInitialTranslationTimeoutMs: number;
@@ -491,6 +493,7 @@ const WaysRootContext = createContext<WaysRootContextType>({
   transitionFallbackLocale: null,
   defaultLocale: 'en-GB',
   baseLocale: undefined,
+  persistLocaleCookie: true,
   acceptedLocales: [],
   messageFormatter: 'waysParser',
   serverInitialTranslationTimeoutMs: DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS,
@@ -513,6 +516,7 @@ const WaysRoot: React.FC<{
   locale?: string;
   defaultLocale: string;
   baseLocale?: string;
+  persistLocaleCookie?: boolean;
   cacheTtl?: number;
   fetcher?: typeof fetch;
   _apiUrl?: string;
@@ -529,6 +533,7 @@ const WaysRoot: React.FC<{
   locale,
   defaultLocale,
   baseLocale,
+  persistLocaleCookie = true,
   cacheTtl,
   fetcher,
   _apiUrl,
@@ -895,6 +900,7 @@ const WaysRoot: React.FC<{
         setTargetLocale,
         defaultLocale,
         baseLocale,
+        persistLocaleCookie,
         acceptedLocales: normalizedAcceptedLocales,
         messageFormatter,
         serverInitialTranslationTimeoutMs,
@@ -1106,6 +1112,7 @@ export const Ways: React.FC<WaysProps> = (props) => {
       locale,
       children,
       baseLocale,
+      persistLocaleCookie,
       cacheTtl,
       messageFormatter,
       fetcher,
@@ -1161,6 +1168,7 @@ export const Ways: React.FC<WaysProps> = (props) => {
             locale={locale}
             defaultLocale={defaultLocale}
             baseLocale={baseLocale}
+            persistLocaleCookie={persistLocaleCookie}
             cacheTtl={cacheTtl}
             fetcher={fetcher}
             _apiUrl={_apiUrl}
@@ -1728,6 +1736,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
   return (
     <InternalLanguageSwitcher
       {...props}
+      persistLocaleCookie={rootContext.persistLocaleCookie}
       rootLocale={rootContext.targetLocale}
       hasRootStore={rootContext.store !== emptyStore}
       isTranslationLoading={isTranslationLoading}

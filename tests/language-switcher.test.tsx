@@ -27,20 +27,21 @@ const createDeferred = <T,>() => {
 };
 
 const AppWithLanguageSwitcher = ({
-  persistLocaleCookie = true,
+  rootPersistLocaleCookie,
 }: {
-  persistLocaleCookie?: boolean;
+  rootPersistLocaleCookie?: boolean;
 }) => {
   const [locale, setLocale] = useState('en-GB');
 
   return (
-    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+    <Ways
+      apiKey="test-api-key"
+      locale={locale}
+      baseLocale="en-GB"
+      persistLocaleCookie={rootPersistLocaleCookie}
+    >
       <Ways context="key-1">
-        <LanguageSwitcher
-          currentLocale={locale}
-          onLocaleChange={setLocale}
-          persistLocaleCookie={persistLocaleCookie}
-        />
+        <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
         <div data-testid="translated-text">
           <T>Hello</T>
         </div>
@@ -178,14 +179,22 @@ describe('LanguageSwitcher', () => {
     expect(screen.getAllByText('🇪🇸').length).toBeGreaterThan(0);
   });
 
-  it('can skip locale cookie persistence when requested by the caller', async () => {
+  it('inherits locale cookie persistence from the root Ways runtime', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
     document.cookie = '18ways_locale=; Max-Age=0; Path=/';
 
-    render(<AppWithLanguageSwitcher persistLocaleCookie={false} />);
+    render(<AppWithLanguageSwitcher rootPersistLocaleCookie={false} />);
 
-    fireEvent.click(getTriggerButton());
-    fireEvent.click(await screen.findByRole('option', { name: /Spanish/i }));
+    await act(async () => {
+      fireEvent.click(getTriggerButton());
+    });
+
+    const spanishOption = await screen.findByRole('option', { name: /Spanish/i });
+
+    await act(async () => {
+      fireEvent.click(spanishOption);
+      await clearQueueForTests();
+    });
 
     expect(document.cookie).not.toContain('18ways_locale=es-ES');
   });
