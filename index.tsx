@@ -1511,12 +1511,20 @@ export const useT = ({
             return false;
           }
 
-          return Boolean(
-            hasPendingClientLocaleTransition ||
+          const hasContextSpecificPendingWork = Boolean(
             pendingSeedPromise ||
             store.hasPendingRequestsForKey(effectiveContextKey) ||
             store.hasInFlightRequestsForKey(effectiveContextKey)
           );
+          if (hasContextSpecificPendingWork) {
+            return true;
+          }
+
+          if (!hasPendingClientLocaleTransition) {
+            return false;
+          }
+
+          return Boolean(store.hasPendingRequests() || store.hasInFlightRequests());
         };
 
         if (!shouldHoldTargetLocaleDisplay()) {
