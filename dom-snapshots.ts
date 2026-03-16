@@ -256,7 +256,8 @@ const collectTextNodes = (): Array<{ node: Text; text: string }> => {
 const loadSnapshot = async (): Promise<unknown> => {
   const mod = await import('rrweb-snapshot');
   if (typeof mod.snapshot === 'function') {
-    return mod.snapshot(document);
+    const result = mod.snapshot(document);
+    return Array.isArray(result) ? result[0] : result;
   }
   throw new Error('rrweb-snapshot snapshot() is unavailable');
 };
