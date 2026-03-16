@@ -354,6 +354,48 @@ describe('WaysRoot - Message Formatter', () => {
     });
   });
 
+  it('infers locale number formatting for bare numeric placeholders', async () => {
+    const source = 'Count: {count}';
+    mockWaysParserTranslation(source, source);
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-US" baseLocale="en-US">
+        <Ways context="test-key">
+          <T vars={{ count: 12345.6 }}>{source}</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Count: 12,345.6')).toBeInTheDocument();
+    });
+  });
+
+  it('supports waysParser percent shorthand', async () => {
+    const source = 'Share: {share, percent, maximumFractionDigits:1}';
+    mockWaysParserTranslation(source, source);
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-US" baseLocale="en-US">
+        <Ways context="test-key">
+          <T vars={{ share: 0.125 }}>{source}</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Share: 12.5%')).toBeInTheDocument();
+    });
+  });
+
   it('supports waysParser money formatter with cents + currency objects', async () => {
     const source = `
       Charge: {diff, money}
