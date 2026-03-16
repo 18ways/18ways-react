@@ -189,7 +189,6 @@ interface ContextualTranslateTextParams extends TranslateTextParams {
   textsHash: string;
   contextFingerprint?: string;
   contextMetadata?: TranslationContextValue;
-  syncOnly?: boolean;
 }
 
 type SeedPromiseLookup = (contextKey: string, targetLocale: string) => Promise<void> | null;
@@ -1520,9 +1519,7 @@ export const useT = ({
             return null;
           }
         };
-
-        const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
-        const syncOnlyEntry: ContextualTranslateTextParams = {
+        const queuedEntry: ContextualTranslateTextParams = {
           key: effectiveContextKey,
           textsHash,
           baseLocale,
@@ -1530,12 +1527,14 @@ export const useT = ({
           texts,
           contextFingerprint,
           contextMetadata: finalContextMetadata,
-          syncOnly: true,
         };
-        const shouldQueueBaseLocaleSync =
-          typeof window !== 'undefined' &&
-          Boolean(baseLocale && targetLocale && baseLocale === targetLocale) &&
-          !store.hasCompletedEntry(syncOnlyEntry);
+
+        if (baseLocale && targetLocale && baseLocale === targetLocale) {
+          queueTranslation(queuedEntry);
+          return texts;
+        }
+
+        const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
         const fallbackLocale = getFallbackLocale();
         const noTranslationFallback = buildTranslationFallbackValues(
           resolveTranslationFallbackMode(translationFallbackConfig, targetLocale),
@@ -1568,14 +1567,6 @@ export const useT = ({
 
           return texts.map((text, index) => decryptedFallback[index] || text);
         };
-
-        if (baseLocale && targetLocale && baseLocale === targetLocale) {
-          if (shouldQueueBaseLocaleSync) {
-            queueTranslation(syncOnlyEntry);
-          }
-          return texts;
-        }
-
         const fallbackTranslation = getFallbackTranslation();
         const shouldHoldTargetLocaleDisplay = (): boolean => {
           if (typeof window === 'undefined' || !fallbackLocale || fallbackLocale === targetLocale) {
@@ -1627,15 +1618,7 @@ export const useT = ({
           throw pendingSeedPromise;
         }
 
-        queueTranslation({
-          key: effectiveContextKey,
-          textsHash,
-          baseLocale,
-          targetLocale,
-          texts,
-          contextFingerprint,
-          contextMetadata: finalContextMetadata,
-        });
+        queueTranslation(queuedEntry);
 
         if (shouldHoldTargetLocaleDisplay()) {
           return fallbackTranslation || noTranslationFallback;

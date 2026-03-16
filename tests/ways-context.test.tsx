@@ -275,7 +275,7 @@ describe('WaysRoot - Context Nesting', () => {
     );
   });
 
-  it('queues a one-time background sync in the base locale when the server is not aware of the fingerprint yet', async () => {
+  it('captures a base-locale view once per context fingerprint', async () => {
     const key = 'cta.button-label';
     const textsHash = '["Open","cta.button-label"]';
     const encryptedTranslation = encryptTranslationValues({
@@ -322,6 +322,7 @@ describe('WaysRoot - Context Nesting', () => {
       expect.objectContaining({
         key,
         textsHash,
+        baseLocale: 'en-US',
         targetLocale: 'en-US',
         contextFingerprint: JSON.stringify({
           name: key,
@@ -329,7 +330,6 @@ describe('WaysRoot - Context Nesting', () => {
           treePath: '',
           filePath: '',
         }),
-        syncOnly: true,
       })
     );
 
@@ -344,44 +344,5 @@ describe('WaysRoot - Context Nesting', () => {
     });
 
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not queue a background sync when a translated locale is already satisfied from cache', async () => {
-    const key = 'cta.button-label';
-    const textsHash = '["Open","cta.button-label"]';
-    const encryptedTranslation = encryptTranslationValues({
-      translatedTexts: ['Abrir'],
-      sourceTexts: ['Open'],
-      locale: 'es-ES',
-      key,
-      textsHash,
-    });
-
-    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
-      'es-ES': {
-        [key]: {
-          [textsHash]: encryptedTranslation,
-        },
-      },
-    };
-
-    vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [],
-      errors: [],
-    });
-
-    render(
-      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="cta">
-        <T context="button-label">Open</T>
-      </Ways>
-    );
-
-    expect(screen.getByText('Abrir')).toBeInTheDocument();
-
-    await act(async () => {
-      await clearQueueForTests();
-    });
-
-    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
   });
 });

@@ -48,7 +48,7 @@ export const InjectTranslations = ({
     return null;
   }
 
-  const hasPendingStoreWork = store.hasPendingRequests() || store.hasInFlightRequests();
+  const hasPendingStoreWork = store.hasPendingEntries() || store.hasInFlightEntries();
   const pendingSeedWork = hasPendingSeedWork();
   if (!hasPendingStoreWork && !pendingSeedWork) {
     return renderTranslationsScript(translations, acceptedLocales, translationFallbackConfig);

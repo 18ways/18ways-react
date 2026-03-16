@@ -17,6 +17,11 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 (globalThis as any).HTMLElement = dom.window.HTMLElement;
 (globalThis as any).Node = dom.window.Node;
 (globalThis as any).TextEncoder = TextEncoder;
+(globalThis as any).fetch = async () =>
+  new Response(JSON.stringify({ data: [], errors: [] }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 
 let teardownComplete = false;
 
@@ -65,6 +70,7 @@ process.on('uncaughtException', (error) => {
 const run = async () => {
   const reactRuntime = await import('@18ways/react');
   const testingLibrary = await import('@testing-library/react');
+  const reactTesting = await import('@18ways/react/testing');
 
   const { render, screen } = testingLibrary;
   const { T, Ways, useT } = reactRuntime;
@@ -92,6 +98,7 @@ const run = async () => {
   assert.equal(screen.getByTestId('component-text').textContent, 'Hello from React');
   assert.equal(screen.getByTestId('hook-text').textContent, 'Dashboard');
 
+  await reactTesting.clearQueueForTests();
   clearTimeout(timeoutId);
   await teardown();
   console.log('[18ways-react:e2e] react smoke passed');

@@ -87,7 +87,7 @@ describe('WaysRoot - Locale Changes', () => {
     const switchTranslateOrder = vi
       .mocked(fetchTranslations)
       .mock.calls.findIndex((calls) =>
-        calls[0]?.some((entry) => entry.targetLocale === 'es-ES' && !entry.syncOnly)
+        calls[0]?.some((entry) => entry.targetLocale === 'es-ES' && entry.baseLocale !== 'es-ES')
       );
 
     expect(switchTranslateOrder).toBeGreaterThanOrEqual(0);
