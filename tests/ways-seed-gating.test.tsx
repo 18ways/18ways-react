@@ -5,7 +5,7 @@ import { renderToPipeableStream } from 'react-dom/server';
 import { Writable } from 'node:stream';
 import { Ways, T } from '../index';
 import {
-  fetchAcceptedLocales,
+  fetchConfig,
   fetchSeed,
   fetchTranslations,
   resetServerInMemoryTranslations,
@@ -17,6 +17,11 @@ vi.mock('@18ways/core/common', async () => {
   return {
     ...actual,
     fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
+    fetchConfig: vi.fn(async () => ({
+      languages: [],
+      total: 0,
+      translationFallback: { default: 'source', overrides: [] },
+    })),
     fetchSeed: vi.fn(),
     fetchTranslations: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
@@ -47,6 +52,14 @@ const extractInjectedAcceptedLocales = (html: string): string[] => {
     throw new Error('Could not find injected accepted locales payload in SSR HTML');
   }
   return JSON.parse(match[1]) as string[];
+};
+
+const extractInjectedTranslationFallbackConfig = (html: string) => {
+  const match = html.match(/window\.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = (\{.*?\});/s);
+  if (!match?.[1]) {
+    throw new Error('Could not find injected translation fallback config payload in SSR HTML');
+  }
+  return JSON.parse(match[1]) as { default: string; overrides: Array<unknown> };
 };
 
 describe('WaysRoot - Seed gating', () => {
@@ -243,7 +256,18 @@ describe('WaysRoot - Seed gating', () => {
   });
 
   it('resolves accepted locales during server render and injects them for hydration', async () => {
-    vi.mocked(fetchAcceptedLocales).mockResolvedValue(['en-GB', 'es-ES', 'ja-JP']);
+    vi.mocked(fetchConfig).mockResolvedValue({
+      languages: [
+        { code: 'en-GB', name: 'English' },
+        { code: 'es-ES', name: 'Spanish' },
+        { code: 'ja-JP', name: 'Japanese' },
+      ],
+      total: 3,
+      translationFallback: {
+        default: 'blank',
+        overrides: [{ locale: 'ja-JP', fallback: 'key' }],
+      },
+    });
     vi.mocked(fetchSeed).mockResolvedValue({
       data: {},
     });
@@ -260,7 +284,7 @@ describe('WaysRoot - Seed gating', () => {
       </React.Suspense>
     );
 
-    expect(fetchAcceptedLocales).toHaveBeenCalledWith('en-GB', {
+    expect(fetchConfig).toHaveBeenCalledWith({
       apiKey: 'test-api-key',
       apiUrl: undefined,
       origin: undefined,
@@ -269,5 +293,9 @@ describe('WaysRoot - Seed gating', () => {
       _requestInitDecorator: undefined,
     });
     expect(extractInjectedAcceptedLocales(html)).toEqual(['en-GB', 'es-ES', 'ja-JP']);
+    expect(extractInjectedTranslationFallbackConfig(html)).toEqual({
+      default: 'blank',
+      overrides: [{ locale: 'ja-JP', fallback: 'key' }],
+    });
   });
 });

@@ -11,6 +11,11 @@ vi.mock('@18ways/core/common', async () => {
   return {
     ...actual,
     fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
+    fetchConfig: vi.fn(async () => ({
+      languages: [],
+      total: 0,
+      translationFallback: { default: 'source', overrides: [] },
+    })),
     init: vi.fn(),
     fetchTranslations: vi.fn(),
     fetchSeed: vi.fn(),

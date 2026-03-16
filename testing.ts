@@ -20,6 +20,12 @@ export const resetTestRuntimeState = (): void => {
     throw new Error('This function is only available in test environments');
   }
 
+  if (typeof window !== 'undefined') {
+    delete window.__18WAYS_ACCEPTED_LOCALES__;
+    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__;
+  }
+
   runtimeResetFns.forEach((resetRuntimeState) => {
     resetRuntimeState();
   });

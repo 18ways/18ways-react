@@ -2,13 +2,18 @@ import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { Ways } from '../index';
-import { fetchAcceptedLocales, fetchSeed, init } from '@18ways/core/common';
+import { fetchConfig, fetchSeed, init } from '@18ways/core/common';
+import { resetTestRuntimeState } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
     ...actual,
-    fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
+    fetchConfig: vi.fn(async () => ({
+      languages: [{ code: 'en-GB', name: 'English (UK)' }],
+      total: 1,
+      translationFallback: { default: 'source', overrides: [] },
+    })),
     init: vi.fn(),
     fetchSeed: vi.fn().mockResolvedValue({ data: {}, errors: [] }),
   };
@@ -16,8 +21,10 @@ vi.mock('@18ways/core/common', async () => {
 
 describe('WaysRoot - Seed call behavior', () => {
   beforeEach(() => {
+    resetTestRuntimeState();
     delete window.__18WAYS_ACCEPTED_LOCALES__;
     delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__;
     vi.clearAllMocks();
   });
 
@@ -69,7 +76,14 @@ describe('WaysRoot - Seed call behavior', () => {
   });
 
   it('fetches accepted locales on the client when none are provided or injected', async () => {
-    vi.mocked(fetchAcceptedLocales).mockResolvedValue(['en-GB', 'es-ES']);
+    vi.mocked(fetchConfig).mockResolvedValue({
+      languages: [
+        { code: 'en-GB', name: 'English (UK)' },
+        { code: 'es-ES', name: 'Spanish' },
+      ],
+      total: 2,
+      translationFallback: { default: 'source', overrides: [] },
+    });
 
     render(
       <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
@@ -78,7 +92,7 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
-      expect(fetchAcceptedLocales).toHaveBeenCalledWith('en-GB', {
+      expect(fetchConfig).toHaveBeenCalledWith({
         apiKey: 'test-api-key',
         apiUrl: undefined,
         origin: undefined,
@@ -104,7 +118,6 @@ describe('WaysRoot - Seed call behavior', () => {
 
     await waitFor(() => {
       expect(window.__18WAYS_ACCEPTED_LOCALES__).toEqual(['en-US', 'es-ES', 'ja-JP']);
-      expect(fetchAcceptedLocales).not.toHaveBeenCalled();
     });
   });
 });

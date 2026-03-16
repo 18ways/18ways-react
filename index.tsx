@@ -17,13 +17,18 @@ import { XMLParser } from 'fast-xml-parser';
 import {
   Translations,
   type Language,
+  type TranslationFallbackConfig,
   getInMemoryTranslations,
+  getWindowTranslationFallbackConfig,
   type _RequestInitDecorator,
-  fetchAcceptedLocales,
+  fetchConfig,
   resolveAcceptedLocales,
+  resolveTranslationFallbackMode,
   resetServerInMemoryTranslations,
   fetchSeed,
   generateHashId,
+  DEFAULT_TRANSLATION_FALLBACK_CONFIG,
+  buildTranslationFallbackValues,
   type TranslationContextInput,
   type TranslationContextInputObject,
   type TranslationContextValue,
@@ -47,7 +52,7 @@ import { canonicalizeLocale, localeToFlagEmoji } from '@18ways/core/i18n-shared'
 import { create18waysEngine, type WaysEngine } from '@18ways/core/engine';
 import { extractTranslationMessage, renderRichTextValue } from './rich-text';
 
-export { fetchAcceptedLocales, fetchEnabledLanguages, resolveOrigin } from '@18ways/core/common';
+export { fetchAcceptedLocales, fetchConfig, resolveOrigin } from '@18ways/core/common';
 export type { Language, Translations } from '@18ways/core/common';
 
 export type MessageFormatterFn = (params: {
@@ -82,7 +87,19 @@ const CONTEXT_TRANSLATION_GC_DELAY_MS = 5 * 60 * 1000;
 const localeCodeListsEqual = (left: string[], right: string[]): boolean =>
   left.length === right.length && left.every((locale, index) => locale === right[index]);
 
-type AcceptedLocalesServerResolution =
+const translationFallbackConfigsEqual = (
+  left: TranslationFallbackConfig,
+  right: TranslationFallbackConfig
+): boolean =>
+  left.default === right.default &&
+  left.overrides.length === right.overrides.length &&
+  left.overrides.every(
+    (entry, index) =>
+      entry.locale === right.overrides[index]?.locale &&
+      entry.fallback === right.overrides[index]?.fallback
+  );
+
+type RuntimeConfigServerResolution =
   | {
       status: 'pending';
       promise: Promise<void>;
@@ -90,12 +107,10 @@ type AcceptedLocalesServerResolution =
   | {
       status: 'resolved';
       locales: string[];
+      translationFallback: TranslationFallbackConfig;
     };
 
-const acceptedLocalesServerResolutionsSingleton = new Map<
-  string,
-  AcceptedLocalesServerResolution
->();
+const runtimeConfigServerResolutionsSingleton = new Map<string, RuntimeConfigServerResolution>();
 const acceptedLocalesFunctionIdsSingleton = new WeakMap<object, number>();
 let acceptedLocalesFunctionIdCounter = 0;
 
@@ -114,12 +129,11 @@ const getAcceptedLocalesFunctionId = (value: object | undefined): number => {
   return acceptedLocalesFunctionIdCounter;
 };
 
-const buildAcceptedLocalesServerResolutionKey = (input: {
+const buildRuntimeConfigServerResolutionKey = (input: {
   apiKey: string;
   _apiUrl?: string;
   requestOrigin?: string;
   cacheTtl?: number;
-  defaultLocale: string;
   fetcher?: typeof fetch;
   requestInitDecorator?: _RequestInitDecorator;
 }): string =>
@@ -128,7 +142,6 @@ const buildAcceptedLocalesServerResolutionKey = (input: {
     _apiUrl: input._apiUrl || '',
     requestOrigin: input.requestOrigin || '',
     cacheTtl: typeof input.cacheTtl === 'number' ? input.cacheTtl : null,
-    defaultLocale: input.defaultLocale,
     fetcherId: getAcceptedLocalesFunctionId(input.fetcher),
     requestInitDecoratorId: getAcceptedLocalesFunctionId(input.requestInitDecorator),
   });
@@ -190,6 +203,7 @@ interface ContextType {
   getFallbackLocale: () => string;
   getPendingSeedPromise: SeedPromiseLookup;
   hasPendingClientLocaleTransition: boolean;
+  translationFallbackConfig: TranslationFallbackConfig;
   baseLocale?: string;
   targetLocale: string;
   components?: ComponentsMap;
@@ -457,6 +471,7 @@ type WaysRootContextType = {
   baseLocale?: string;
   persistLocaleCookie: boolean;
   acceptedLocales: string[];
+  translationFallbackConfig: TranslationFallbackConfig;
   messageFormatter: ResolvedMessageFormatter;
   serverInitialTranslationTimeoutMs: number;
   setTargetLocale: (targetLocale: string) => void;
@@ -476,7 +491,7 @@ if (process.env.NODE_ENV === 'test') {
   registerRuntimeResetFn(() => {
     transitionFallbackLocaleSingleton = null;
     mountedContextCountsSingleton.clear();
-    acceptedLocalesServerResolutionsSingleton.clear();
+    runtimeConfigServerResolutionsSingleton.clear();
     contextGcTimeoutsSingleton.forEach((timeoutId) => {
       clearTimeout(timeoutId);
     });
@@ -492,6 +507,7 @@ const WaysRootContext = createContext<WaysRootContextType>({
   baseLocale: undefined,
   persistLocaleCookie: true,
   acceptedLocales: [],
+  translationFallbackConfig: DEFAULT_TRANSLATION_FALLBACK_CONFIG,
   messageFormatter: 'waysParser',
   serverInitialTranslationTimeoutMs: DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS,
   setTargetLocale: () => {
@@ -547,72 +563,83 @@ const WaysRoot: React.FC<{
     [acceptedLocales]
   );
   const [runtimeAcceptedLocales, setRuntimeAcceptedLocales] = useState<string[]>([]);
+  const [runtimeTranslationFallbackConfig, setRuntimeTranslationFallbackConfig] =
+    useState<TranslationFallbackConfig>(DEFAULT_TRANSLATION_FALLBACK_CONFIG);
   const acceptedLocalesFromWindow = readAcceptedLocalesFromWindow();
+  const translationFallbackConfigFromWindow = getWindowTranslationFallbackConfig();
   const acceptedLocalesFromWindowKey = acceptedLocalesFromWindow.join(',');
-  const acceptedLocalesServerResolutionKey =
-    acceptedLocalesFromProps.length === 0 && apiKey
-      ? buildAcceptedLocalesServerResolutionKey({
-          apiKey,
-          _apiUrl,
-          requestOrigin,
-          cacheTtl,
-          defaultLocale: resolvedBaseLocale || defaultLocale,
-          fetcher,
-          requestInitDecorator,
-        })
-      : null;
-  const acceptedLocalesServerResolution = acceptedLocalesServerResolutionKey
-    ? acceptedLocalesServerResolutionsSingleton.get(acceptedLocalesServerResolutionKey)
+  const translationFallbackConfigFromWindowKey = JSON.stringify(
+    translationFallbackConfigFromWindow || DEFAULT_TRANSLATION_FALLBACK_CONFIG
+  );
+  const runtimeConfigServerResolutionKey = apiKey
+    ? buildRuntimeConfigServerResolutionKey({
+        apiKey,
+        _apiUrl,
+        requestOrigin,
+        cacheTtl,
+        fetcher,
+        requestInitDecorator,
+      })
+    : null;
+  const runtimeConfigServerResolution = runtimeConfigServerResolutionKey
+    ? runtimeConfigServerResolutionsSingleton.get(runtimeConfigServerResolutionKey)
     : undefined;
 
-  if (
-    typeof window === 'undefined' &&
-    acceptedLocalesFromProps.length === 0 &&
-    acceptedLocalesFromWindow.length === 0 &&
-    acceptedLocalesServerResolutionKey
-  ) {
-    if (!acceptedLocalesServerResolution) {
-      const acceptedLocalesPromise = fetchAcceptedLocales(resolvedBaseLocale || defaultLocale, {
+  if (typeof window === 'undefined' && runtimeConfigServerResolutionKey) {
+    if (!runtimeConfigServerResolution) {
+      const runtimeConfigPromise = fetchConfig({
         apiKey,
         apiUrl: _apiUrl,
         origin: requestOrigin,
         fetcher,
         cacheTtlSeconds: cacheTtl,
         _requestInitDecorator: requestInitDecorator,
-      }).then((fetchedLocales) => {
-        acceptedLocalesServerResolutionsSingleton.set(acceptedLocalesServerResolutionKey, {
+      }).then((config) => {
+        runtimeConfigServerResolutionsSingleton.set(runtimeConfigServerResolutionKey, {
           status: 'resolved',
-          locales: resolveAcceptedLocales(resolvedBaseLocale || defaultLocale, fetchedLocales),
+          locales: resolveAcceptedLocales(
+            resolvedBaseLocale || defaultLocale,
+            config.languages.map((language) => language.code)
+          ),
+          translationFallback: config.translationFallback,
         });
       });
-      acceptedLocalesServerResolutionsSingleton.set(acceptedLocalesServerResolutionKey, {
+      runtimeConfigServerResolutionsSingleton.set(runtimeConfigServerResolutionKey, {
         status: 'pending',
-        promise: acceptedLocalesPromise,
+        promise: runtimeConfigPromise,
       });
-      throw acceptedLocalesPromise;
+      throw runtimeConfigPromise;
     }
 
-    if (acceptedLocalesServerResolution.status === 'pending') {
-      throw acceptedLocalesServerResolution.promise;
+    if (runtimeConfigServerResolution.status === 'pending') {
+      throw runtimeConfigServerResolution.promise;
     }
   }
-  useEffect(() => {
-    if (acceptedLocalesFromProps.length > 0) {
-      return;
-    }
 
+  useEffect(() => {
     if (acceptedLocalesFromWindow.length > 0) {
       setRuntimeAcceptedLocales((previousLocales) =>
         localeCodeListsEqual(previousLocales, acceptedLocalesFromWindow)
           ? previousLocales
           : acceptedLocalesFromWindow
       );
+    }
+
+    if (translationFallbackConfigFromWindow) {
+      setRuntimeTranslationFallbackConfig((previousConfig) =>
+        translationFallbackConfigsEqual(previousConfig, translationFallbackConfigFromWindow)
+          ? previousConfig
+          : translationFallbackConfigFromWindow
+      );
+    }
+
+    if (acceptedLocalesFromWindow.length > 0 && translationFallbackConfigFromWindow) {
       return;
     }
 
     let cancelled = false;
 
-    void fetchAcceptedLocales(resolvedBaseLocale || defaultLocale, {
+    void fetchConfig({
       apiKey,
       apiUrl: _apiUrl,
       origin: requestOrigin,
@@ -620,28 +647,29 @@ const WaysRoot: React.FC<{
       cacheTtlSeconds: cacheTtl,
       _requestInitDecorator: requestInitDecorator,
     })
-      .then((fetchedLocales) => {
+      .then((config) => {
         if (cancelled) {
           return;
         }
 
         const normalizedFetchedLocales = resolveAcceptedLocales(
           resolvedBaseLocale || defaultLocale,
-          fetchedLocales
+          config.languages.map((language) => language.code)
         );
-        if (!normalizedFetchedLocales.length) {
-          return;
-        }
-
         setRuntimeAcceptedLocales((previousLocales) =>
           localeCodeListsEqual(previousLocales, normalizedFetchedLocales)
             ? previousLocales
             : normalizedFetchedLocales
         );
+        setRuntimeTranslationFallbackConfig((previousConfig) =>
+          translationFallbackConfigsEqual(previousConfig, config.translationFallback)
+            ? previousConfig
+            : config.translationFallback
+        );
       })
       .catch((error) => {
         if (!cancelled) {
-          console.error('[18ways] Failed to fetch accepted locales:', error);
+          console.error('[18ways] Failed to fetch runtime config:', error);
         }
       });
 
@@ -659,27 +687,39 @@ const WaysRoot: React.FC<{
     requestInitDecorator,
     requestOrigin,
     resolvedBaseLocale,
+    translationFallbackConfigFromWindowKey,
   ]);
 
   const fallbackLocale = resolvedBaseLocale || canonicalizeLocale(defaultLocale);
   const acceptedLocalesFromServer =
-    acceptedLocalesServerResolution?.status === 'resolved'
-      ? acceptedLocalesServerResolution.locales
+    runtimeConfigServerResolution?.status === 'resolved'
+      ? runtimeConfigServerResolution.locales
       : [];
+  const translationFallbackConfigFromServer =
+    runtimeConfigServerResolution?.status === 'resolved'
+      ? runtimeConfigServerResolution.translationFallback
+      : DEFAULT_TRANSLATION_FALLBACK_CONFIG;
   const fallbackAcceptedLocales = fallbackLocale ? [fallbackLocale] : [];
-  const normalizedAcceptedLocales = resolveAcceptedLocales(
-    resolvedBaseLocale,
-    acceptedLocalesFromProps,
-    acceptedLocalesFromWindow,
-    acceptedLocalesFromServer,
-    runtimeAcceptedLocales,
-    fallbackAcceptedLocales
-  );
+  const normalizedAcceptedLocales =
+    acceptedLocalesFromProps.length > 0
+      ? resolveAcceptedLocales(resolvedBaseLocale, acceptedLocalesFromProps)
+      : resolveAcceptedLocales(
+          resolvedBaseLocale,
+          acceptedLocalesFromWindow,
+          acceptedLocalesFromServer,
+          runtimeAcceptedLocales,
+          fallbackAcceptedLocales
+        );
   const hasResolvedAcceptedLocales =
     acceptedLocalesFromProps.length > 0 ||
     acceptedLocalesFromWindow.length > 0 ||
     acceptedLocalesFromServer.length > 0 ||
     runtimeAcceptedLocales.length > 0;
+  const resolvedTranslationFallbackConfig =
+    translationFallbackConfigFromWindow ||
+    (runtimeConfigServerResolution?.status === 'resolved'
+      ? translationFallbackConfigFromServer
+      : runtimeTranslationFallbackConfig);
 
   if (typeof window !== 'undefined') {
     if (!window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
@@ -692,6 +732,9 @@ const WaysRoot: React.FC<{
     normalizedAcceptedLocales.length > 0
   ) {
     window.__18WAYS_ACCEPTED_LOCALES__ = normalizedAcceptedLocales;
+  }
+  if (typeof window !== 'undefined') {
+    window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = resolvedTranslationFallbackConfig;
   }
 
   const store = engine.getStore();
@@ -905,6 +948,7 @@ const WaysRoot: React.FC<{
         baseLocale,
         persistLocaleCookie,
         acceptedLocales: normalizedAcceptedLocales,
+        translationFallbackConfig: resolvedTranslationFallbackConfig,
         messageFormatter,
         serverInitialTranslationTimeoutMs,
         getPendingSeedPromise,
@@ -917,6 +961,7 @@ const WaysRoot: React.FC<{
       {children}
       <InjectTranslations
         acceptedLocales={normalizedAcceptedLocales}
+        translationFallbackConfig={resolvedTranslationFallbackConfig}
         store={store}
         idlePromiseRef={serverIdlePromiseRef}
         translations={completedTranslations}
@@ -948,6 +993,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
     targetLocale: cTargetLocale,
     baseLocale: cBaseLocale,
     transitionFallbackLocale: rootTransitionFallbackLocale,
+    translationFallbackConfig,
     messageFormatter,
     serverInitialTranslationTimeoutMs,
     store,
@@ -1074,6 +1120,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
           getFallbackLocale,
           getPendingSeedPromise,
           hasPendingClientLocaleTransition,
+          translationFallbackConfig,
           baseLocale,
           targetLocale,
           components,
@@ -1399,6 +1446,7 @@ export const useT = ({
         getFallbackLocale,
         getPendingSeedPromise,
         hasPendingClientLocaleTransition,
+        translationFallbackConfig,
         baseLocale: cBaseLocale,
         targetLocale: cTargetLocale,
         components: cComponents,
@@ -1489,6 +1537,11 @@ export const useT = ({
           Boolean(baseLocale && targetLocale && baseLocale === targetLocale) &&
           !store.hasCompletedEntry(syncOnlyEntry);
         const fallbackLocale = getFallbackLocale();
+        const noTranslationFallback = buildTranslationFallbackValues(
+          resolveTranslationFallbackMode(translationFallbackConfig, targetLocale),
+          texts,
+          effectiveContextKey
+        );
         const getFallbackTranslation = (): string[] | null => {
           if (!fallbackLocale || fallbackLocale === targetLocale) {
             return null;
@@ -1557,10 +1610,10 @@ export const useT = ({
 
         if (pendingSeedPromise) {
           if (!suspend && typeof window !== 'undefined') {
-            return fallbackTranslation || texts;
+            return fallbackTranslation || noTranslationFallback;
           }
           if (shouldHoldTargetLocaleDisplay()) {
-            return fallbackTranslation || texts;
+            return fallbackTranslation || noTranslationFallback;
           }
           if (isRenderingSuspenseFallback) {
             // On the server, keep suspending until seed resolves so we do not
@@ -1568,7 +1621,7 @@ export const useT = ({
             if (typeof window === 'undefined') {
               throw pendingSeedPromise;
             }
-            return fallbackTranslation || texts;
+            return fallbackTranslation || noTranslationFallback;
           }
 
           throw pendingSeedPromise;
@@ -1585,11 +1638,7 @@ export const useT = ({
         });
 
         if (shouldHoldTargetLocaleDisplay()) {
-          return fallbackTranslation || texts;
-        }
-
-        if (fallbackTranslation) {
-          return fallbackTranslation;
+          return fallbackTranslation || noTranslationFallback;
         }
 
         const shouldSuspendForMissingTranslation =
@@ -1612,7 +1661,7 @@ export const useT = ({
           }
           throw pendingPromise;
         }
-        return texts;
+        return noTranslationFallback;
       })();
 
       if (extractedMessage.kind === 'rich') {

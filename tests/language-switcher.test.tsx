@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { Ways, T, LanguageSwitcher } from '../index';
-import { fetchEnabledLanguages, fetchSeed, fetchTranslations } from '@18ways/core/common';
+import { fetchConfig, fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { internalT } from '@18ways/core/internal-i18n';
 import { clearQueueForTests } from '../testing';
 
@@ -11,7 +11,11 @@ vi.mock('@18ways/core/common', async () => {
   return {
     ...actual,
     fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
-    fetchEnabledLanguages: vi.fn(),
+    fetchConfig: vi.fn(async () => ({
+      languages: [],
+      total: 0,
+      translationFallback: { default: 'source', overrides: [] },
+    })),
     fetchTranslations: vi.fn(),
     fetchSeed: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
@@ -113,6 +117,10 @@ describe('LanguageSwitcher', () => {
     vi.useRealTimers();
     document.cookie = '18ways_locale=; Max-Age=0; Path=/';
     window.__18WAYS_ACCEPTED_LOCALES__ = ['en-GB', 'es-ES'];
+    window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = {
+      default: 'source',
+      overrides: [],
+    };
     window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
       'en-GB': {
         'key-1': {
@@ -133,7 +141,7 @@ describe('LanguageSwitcher', () => {
     vi.mocked(fetchTranslations).mockReturnValue(deferred.promise);
 
     render(<AppWithLanguageSwitcher />);
-    expect(fetchEnabledLanguages).not.toHaveBeenCalled();
+    expect(fetchConfig).not.toHaveBeenCalled();
 
     fireEvent.click(getTriggerButton());
     fireEvent.click(await screen.findByRole('option', { name: /Spanish/i }));

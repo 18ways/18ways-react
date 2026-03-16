@@ -11,21 +11,43 @@ describe('SSR Bug Fix Test', () => {
     // Clear all mocks before each test
     vi.clearAllMocks();
     window.__18WAYS_ACCEPTED_LOCALES__ = ['en-US', 'ja-JP'];
+    window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = {
+      default: 'source',
+      overrides: [],
+    };
 
-    // Mock successful translation response
-    (global.fetch as any).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            locale: 'ja-JP',
-            key: 'test',
-            textsHash: 'hash123',
-            translation: ['こんにちは世界'],
-          },
-        ],
-        errors: [],
-      }),
+    (global.fetch as any).mockImplementation(async (input: string) => {
+      if (input.includes('/config')) {
+        return {
+          ok: true,
+          json: async () => ({
+            languages: [
+              { code: 'en-US', name: 'English (US)' },
+              { code: 'ja-JP', name: 'Japanese' },
+            ],
+            total: 2,
+            translationFallback: {
+              default: 'source',
+              overrides: [],
+            },
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              locale: 'ja-JP',
+              key: 'test',
+              textsHash: 'hash123',
+              translation: ['こんにちは世界'],
+            },
+          ],
+          errors: [],
+        }),
+      };
     });
   });
 
@@ -52,12 +74,13 @@ describe('SSR Bug Fix Test', () => {
       { timeout: 3000 }
     );
 
-    // Verify the fetch was to the translate endpoint
-    const fetchCall = (global.fetch as any).mock.calls[0];
-    expect(fetchCall[0]).toContain('/translate');
+    const translateCall = (global.fetch as any).mock.calls.find((call: [string, RequestInit]) =>
+      call[0].includes('/translate')
+    );
+    expect(translateCall).toBeTruthy();
 
     // Verify the correct locale was requested
-    const requestBody = JSON.parse(fetchCall[1].body);
+    const requestBody = JSON.parse((translateCall as [string, RequestInit])[1].body as string);
     expect(requestBody.payload[0].targetLocale).toBe('ja-JP');
     expect(requestBody.payload[0].baseLocale).toBe('en-US');
   });
@@ -78,13 +101,15 @@ describe('SSR Bug Fix Test', () => {
     render(<TestComponent />);
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalled();
     });
 
-    const fetchCall = (global.fetch as any).mock.calls[0];
-    expect(fetchCall[0]).toContain('/translate');
+    const translateCall = (global.fetch as any).mock.calls.find((call: [string, RequestInit]) =>
+      call[0].includes('/translate')
+    );
+    expect(translateCall).toBeTruthy();
 
-    const requestBody = JSON.parse(fetchCall[1].body);
+    const requestBody = JSON.parse((translateCall as [string, RequestInit])[1].body as string);
     expect(requestBody.payload[0].targetLocale).toBe('en-US');
     expect(requestBody.payload[0].baseLocale).toBe('en-US');
     expect(requestBody.payload[0].syncOnly).toBe(true);

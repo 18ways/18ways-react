@@ -1,17 +1,22 @@
 import React from 'react';
-import type { Translations } from '@18ways/core/common';
+import type { Translations, TranslationFallbackConfig } from '@18ways/core/common';
 import type { TranslationStore } from '@18ways/core/translation-store';
 
 interface InjectTranslationsProps {
   translations: Translations;
   acceptedLocales: string[];
+  translationFallbackConfig: TranslationFallbackConfig;
   store: TranslationStore;
   idlePromiseRef: React.MutableRefObject<Promise<void> | null>;
   hasPendingSeedWork: () => boolean;
   waitForPendingSeedWork: () => Promise<void>;
 }
 
-const renderTranslationsScript = (translations: Translations, acceptedLocales: string[]) => (
+const renderTranslationsScript = (
+  translations: Translations,
+  acceptedLocales: string[],
+  translationFallbackConfig: TranslationFallbackConfig
+) => (
   <script
     dangerouslySetInnerHTML={{
       __html: `(() => {
@@ -24,6 +29,7 @@ const renderTranslationsScript = (translations: Translations, acceptedLocales: s
   }
   window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = target;
   window.__18WAYS_ACCEPTED_LOCALES__ = ${JSON.stringify(acceptedLocales)};
+  window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = ${JSON.stringify(translationFallbackConfig)};
 })();`,
     }}
   />
@@ -32,6 +38,7 @@ const renderTranslationsScript = (translations: Translations, acceptedLocales: s
 export const InjectTranslations = ({
   translations,
   acceptedLocales,
+  translationFallbackConfig,
   store,
   idlePromiseRef,
   hasPendingSeedWork,
@@ -44,7 +51,7 @@ export const InjectTranslations = ({
   const hasPendingStoreWork = store.hasPendingRequests() || store.hasInFlightRequests();
   const pendingSeedWork = hasPendingSeedWork();
   if (!hasPendingStoreWork && !pendingSeedWork) {
-    return renderTranslationsScript(translations, acceptedLocales);
+    return renderTranslationsScript(translations, acceptedLocales, translationFallbackConfig);
   }
 
   if (!idlePromiseRef.current) {

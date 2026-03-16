@@ -82,6 +82,7 @@ export function clearWaysState() {
   resetTestRuntimeState();
   delete window.__18WAYS_ACCEPTED_LOCALES__;
   delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+  delete window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__;
   vi.clearAllMocks();
 }
 
@@ -113,6 +114,11 @@ export function setupCommonMocks() {
     return {
       ...actual,
       fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
+      fetchConfig: vi.fn(async () => ({
+        languages: [],
+        total: 0,
+        translationFallback: { default: 'source', overrides: [] },
+      })),
       fetchTranslations: vi.fn(),
       generateHashId: vi.fn((x) => JSON.stringify(x)),
     };
