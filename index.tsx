@@ -29,7 +29,7 @@ import {
 } from '@18ways/core/common';
 import { parseRichTextMarkupAgainstSource } from '@18ways/core/rich-text';
 import { InjectTranslations } from './inject';
-import { formatWaysParser } from '@18ways/core/parsers/ways-parser';
+import { formatWaysParser, isRuntimeOnlyWaysMessage } from '@18ways/core/parsers/ways-parser';
 import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/translation-store';
 import { registerQueueClearFn } from './testing';
 import { registerRuntimeResetFn } from './testing';
@@ -1411,6 +1411,7 @@ export const useT = ({
             ...(typeof tComponents === 'object' ? tComponents : {}),
           }
         : {};
+      const resolvedMessageFormatter = messageFormatter || 'waysParser';
 
       if (!targetLocale) {
         throw new Error('targetLocale is required');
@@ -1421,6 +1422,14 @@ export const useT = ({
         extractedMessage.kind === 'plain' ? extractedMessage.texts : [extractedMessage.markup];
 
       const translatedTexts = (() => {
+        if (
+          extractedMessage.kind === 'plain' &&
+          resolvedMessageFormatter === 'waysParser' &&
+          isRuntimeOnlyWaysMessage(texts[0] || '')
+        ) {
+          return texts;
+        }
+
         if (
           !store ||
           !contextKey ||
@@ -1625,14 +1634,14 @@ export const useT = ({
           renderText: (text) =>
             applyComponentsToText(
               components,
-              formatWithMessageFormatter(messageFormatter || 'waysParser', vars, text, targetLocale)
+              formatWithMessageFormatter(resolvedMessageFormatter, vars, text, targetLocale)
             ),
         });
       }
 
       const translatedText = translatedTexts[0] ?? texts[0] ?? '';
       const textWithVars = formatWithMessageFormatter(
-        messageFormatter || 'waysParser',
+        resolvedMessageFormatter,
         vars,
         translatedText,
         targetLocale

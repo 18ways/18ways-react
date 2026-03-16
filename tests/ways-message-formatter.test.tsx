@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { Ways, T } from '../index';
 import { fetchTranslations } from '@18ways/core/common';
+import { formatWaysParser } from '@18ways/core/parsers/ways-parser';
 import { clearQueueForTests } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
@@ -208,7 +209,7 @@ describe('WaysRoot - Message Formatter', () => {
 
   it('supports waysParser date formatting', async () => {
     const source = `
-      {createdAt, date, dateStyle:short}
+      Created at: {createdAt, date, dateStyle:short}
     `.trim();
     mockWaysParserTranslation(
       `
@@ -231,6 +232,52 @@ describe('WaysRoot - Message Formatter', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Fecha: 15/1/24')).toBeInTheDocument();
+    });
+  });
+
+  it('skips translation fetches for runtime-only waysParser messages', async () => {
+    const source = '{createdAt, date, dateStyle:short}';
+    const vars = { createdAt: new Date(Date.UTC(2024, 0, 15, 12)) };
+
+    render(
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+        <Ways context="test-key">
+          <T vars={vars}>{source}</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(fetchTranslations).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText(formatWaysParser(vars, source, 'es-ES'))).toBeInTheDocument();
+    });
+  });
+
+  it('skips translation fetches for bare date placeholders', async () => {
+    const source = '{myDate}';
+    const vars = { myDate: new Date(Date.UTC(2024, 0, 15, 12)) };
+
+    render(
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+        <Ways context="test-key">
+          <T vars={vars}>{source}</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(fetchTranslations).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText(formatWaysParser(vars, source, 'es-ES'))).toBeInTheDocument();
     });
   });
 
