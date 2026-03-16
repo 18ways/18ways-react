@@ -20,6 +20,7 @@ import {
   getInMemoryTranslations,
   type _RequestInitDecorator,
   fetchAcceptedLocales,
+  resolveAcceptedLocales,
   resetServerInMemoryTranslations,
   fetchSeed,
   generateHashId,
@@ -77,11 +78,6 @@ const DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
   3000
 );
 const CONTEXT_TRANSLATION_GC_DELAY_MS = 5 * 60 * 1000;
-
-const uniq = <T,>(values: T[]): T[] => Array.from(new Set(values));
-
-const canonicalizeLocaleCodes = (localeCodes: string[]): string[] =>
-  uniq(localeCodes.map((locale) => canonicalizeLocale(locale)).filter(Boolean));
 
 const localeCodeListsEqual = (left: string[], right: string[]): boolean =>
   left.length === right.length && left.every((locale, index) => locale === right[index]);
@@ -545,21 +541,22 @@ const WaysRoot: React.FC<{
   serverInitialTranslationTimeoutMs = DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS,
   rootContextKey,
 }) => {
-  const normalizedAcceptedLocalesFromProps = useMemo(
-    () => canonicalizeLocaleCodes(acceptedLocales),
+  const resolvedBaseLocale = canonicalizeLocale(baseLocale || defaultLocale);
+  const acceptedLocalesFromProps = useMemo(
+    () => resolveAcceptedLocales(undefined, acceptedLocales),
     [acceptedLocales]
   );
   const [runtimeAcceptedLocales, setRuntimeAcceptedLocales] = useState<string[]>([]);
   const acceptedLocalesFromWindow = readAcceptedLocalesFromWindow();
   const acceptedLocalesFromWindowKey = acceptedLocalesFromWindow.join(',');
   const acceptedLocalesServerResolutionKey =
-    normalizedAcceptedLocalesFromProps.length === 0 && apiKey
+    acceptedLocalesFromProps.length === 0 && apiKey
       ? buildAcceptedLocalesServerResolutionKey({
           apiKey,
           _apiUrl,
           requestOrigin,
           cacheTtl,
-          defaultLocale,
+          defaultLocale: resolvedBaseLocale || defaultLocale,
           fetcher,
           requestInitDecorator,
         })
@@ -570,12 +567,12 @@ const WaysRoot: React.FC<{
 
   if (
     typeof window === 'undefined' &&
-    normalizedAcceptedLocalesFromProps.length === 0 &&
+    acceptedLocalesFromProps.length === 0 &&
     acceptedLocalesFromWindow.length === 0 &&
     acceptedLocalesServerResolutionKey
   ) {
     if (!acceptedLocalesServerResolution) {
-      const acceptedLocalesPromise = fetchAcceptedLocales(defaultLocale, {
+      const acceptedLocalesPromise = fetchAcceptedLocales(resolvedBaseLocale || defaultLocale, {
         apiKey,
         apiUrl: _apiUrl,
         origin: requestOrigin,
@@ -585,7 +582,7 @@ const WaysRoot: React.FC<{
       }).then((fetchedLocales) => {
         acceptedLocalesServerResolutionsSingleton.set(acceptedLocalesServerResolutionKey, {
           status: 'resolved',
-          locales: canonicalizeLocaleCodes(fetchedLocales),
+          locales: resolveAcceptedLocales(resolvedBaseLocale || defaultLocale, fetchedLocales),
         });
       });
       acceptedLocalesServerResolutionsSingleton.set(acceptedLocalesServerResolutionKey, {
@@ -600,7 +597,7 @@ const WaysRoot: React.FC<{
     }
   }
   useEffect(() => {
-    if (normalizedAcceptedLocalesFromProps.length > 0) {
+    if (acceptedLocalesFromProps.length > 0) {
       return;
     }
 
@@ -615,7 +612,7 @@ const WaysRoot: React.FC<{
 
     let cancelled = false;
 
-    void fetchAcceptedLocales(defaultLocale, {
+    void fetchAcceptedLocales(resolvedBaseLocale || defaultLocale, {
       apiKey,
       apiUrl: _apiUrl,
       origin: requestOrigin,
@@ -628,7 +625,10 @@ const WaysRoot: React.FC<{
           return;
         }
 
-        const normalizedFetchedLocales = canonicalizeLocaleCodes(fetchedLocales);
+        const normalizedFetchedLocales = resolveAcceptedLocales(
+          resolvedBaseLocale || defaultLocale,
+          fetchedLocales
+        );
         if (!normalizedFetchedLocales.length) {
           return;
         }
@@ -655,26 +655,28 @@ const WaysRoot: React.FC<{
     cacheTtl,
     defaultLocale,
     fetcher,
-    normalizedAcceptedLocalesFromProps,
+    acceptedLocalesFromProps,
     requestInitDecorator,
     requestOrigin,
+    resolvedBaseLocale,
   ]);
 
-  const fallbackLocale = canonicalizeLocale(defaultLocale);
+  const fallbackLocale = resolvedBaseLocale || canonicalizeLocale(defaultLocale);
   const acceptedLocalesFromServer =
     acceptedLocalesServerResolution?.status === 'resolved'
       ? acceptedLocalesServerResolution.locales
       : [];
   const fallbackAcceptedLocales = fallbackLocale ? [fallbackLocale] : [];
-  const normalizedAcceptedLocales = uniq([
-    ...normalizedAcceptedLocalesFromProps,
-    ...acceptedLocalesFromWindow,
-    ...acceptedLocalesFromServer,
-    ...runtimeAcceptedLocales,
-    ...fallbackAcceptedLocales,
-  ]);
+  const normalizedAcceptedLocales = resolveAcceptedLocales(
+    resolvedBaseLocale,
+    acceptedLocalesFromProps,
+    acceptedLocalesFromWindow,
+    acceptedLocalesFromServer,
+    runtimeAcceptedLocales,
+    fallbackAcceptedLocales
+  );
   const hasResolvedAcceptedLocales =
-    normalizedAcceptedLocalesFromProps.length > 0 ||
+    acceptedLocalesFromProps.length > 0 ||
     acceptedLocalesFromWindow.length > 0 ||
     acceptedLocalesFromServer.length > 0 ||
     runtimeAcceptedLocales.length > 0;
@@ -1702,6 +1704,11 @@ export const useSetCurrentLocale = (): ((nextLocale: string) => void) => {
     },
     [rootContext]
   );
+};
+
+export const useAcceptedLocales = (): string[] => {
+  const rootContext = useContext(WaysRootContext);
+  return rootContext.acceptedLocales;
 };
 
 export type {

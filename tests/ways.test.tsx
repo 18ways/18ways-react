@@ -89,4 +89,22 @@ describe('WaysRoot - Seed call behavior', () => {
       expect(window.__18WAYS_ACCEPTED_LOCALES__).toEqual(['en-GB', 'es-ES']);
     });
   });
+
+  it('prepends the base locale when explicit accepted locales omit it', async () => {
+    render(
+      <Ways
+        apiKey="test-api-key"
+        locale="es-ES"
+        baseLocale="en-US"
+        acceptedLocales={['es-ES', 'ja-JP']}
+      >
+        <div>Test App</div>
+      </Ways>
+    );
+
+    await waitFor(() => {
+      expect(window.__18WAYS_ACCEPTED_LOCALES__).toEqual(['en-US', 'es-ES', 'ja-JP']);
+      expect(fetchAcceptedLocales).not.toHaveBeenCalled();
+    });
+  });
 });
