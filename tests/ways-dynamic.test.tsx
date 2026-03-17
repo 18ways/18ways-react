@@ -44,35 +44,35 @@ describe('WaysRoot - Dynamic Translation Logic', () => {
 
   it('should dynamically translate new content not initially in the DOM', async () => {
     vi.mocked(fetchTranslations).mockImplementation(async (toTranslate) => {
-      if (toTranslate[0].textsHash === '["Hello","key-1"]') {
+      if (toTranslate[0].textHash === '["Hello","key-1"]') {
         return {
           data: [
             {
               key: 'key-1',
-              textsHash: '["Hello","key-1"]',
+              textHash: '["Hello","key-1"]',
               locale: 'en-GB',
-              translation: ['oh hai'],
+              translation: 'oh hai',
             },
           ],
           errors: [],
         };
       }
 
-      if (toTranslate[0].textsHash === '["Goodbye","key-1"]') {
+      if (toTranslate[0].textHash === '["Goodbye","key-1"]') {
         return {
           data: [
             {
               key: 'key-1',
-              textsHash: '["Goodbye","key-1"]',
+              textHash: '["Goodbye","key-1"]',
               locale: 'en-GB',
-              translation: ['kthxbai'],
+              translation: 'kthxbai',
             },
           ],
           errors: [],
         };
       }
 
-      throw new Error('Unexpected textsHash');
+      throw new Error('Unexpected textHash');
     });
 
     renderWithWays(
@@ -103,8 +103,8 @@ describe('WaysRoot - Dynamic Translation Logic', () => {
     expect(window.__18WAYS_IN_MEMORY_TRANSLATIONS__).toMatchObject({
       'en-GB': {
         'key-1': {
-          '["Hello","key-1"]': ['oh hai'],
-          '["Goodbye","key-1"]': ['kthxbai'],
+          '["Hello","key-1"]': 'oh hai',
+          '["Goodbye","key-1"]': 'kthxbai',
         },
       },
     });

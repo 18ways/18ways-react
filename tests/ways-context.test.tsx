@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { Ways, T, useT } from '../index';
 import { fetchTranslations } from '@18ways/core/common';
-import { encryptTranslationValues } from '@18ways/core/crypto';
+import { encryptTranslationValue } from '@18ways/core/crypto';
 import { clearQueueForTests } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
@@ -33,14 +33,14 @@ describe('WaysRoot - Context Nesting', () => {
         {
           locale: 'es-ES',
           key: 'context-1',
-          textsHash: '["Shared Text","context-1"]',
-          translation: ['Contexto 1'],
+          textHash: '["Shared Text","context-1"]',
+          translation: 'Contexto 1',
         },
         {
           locale: 'es-ES',
           key: 'context-2',
-          textsHash: '["Shared Text","context-2"]',
-          translation: ['Contexto 2'],
+          textHash: '["Shared Text","context-2"]',
+          translation: 'Contexto 2',
         },
       ],
       errors: [],
@@ -78,8 +78,8 @@ describe('WaysRoot - Context Nesting', () => {
         {
           locale: 'es-ES',
           key: 'default-key',
-          textsHash: '["No Context","default-key"]',
-          translation: ['Sin Contexto'],
+          textHash: '["No Context","default-key"]',
+          translation: 'Sin Contexto',
         },
       ],
       errors: [],
@@ -106,14 +106,14 @@ describe('WaysRoot - Context Nesting', () => {
         {
           locale: 'es-ES',
           key: 'greeting',
-          textsHash: '["Hello","greeting"]',
-          translation: ['Hola'],
+          textHash: '["Hello","greeting"]',
+          translation: 'Hola',
         },
         {
           locale: 'fr-FR',
           key: 'greeting',
-          textsHash: '["Hello","greeting"]',
-          translation: ['Bonjour'],
+          textHash: '["Hello","greeting"]',
+          translation: 'Bonjour',
         },
       ],
       errors: [],
@@ -148,8 +148,8 @@ describe('WaysRoot - Context Nesting', () => {
         {
           locale: 'es-ES',
           key: 'test',
-          textsHash: '["Test","test"]',
-          translation: ['Prueba'],
+          textHash: '["Test","test"]',
+          translation: 'Prueba',
         },
       ],
       errors: [],
@@ -210,7 +210,7 @@ describe('WaysRoot - Context Nesting', () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: 'cta.button-label',
-          texts: ['Open'],
+          text: 'Open',
           contextMetadata: expect.objectContaining({
             name: 'cta.button-label',
             label: '',
@@ -263,7 +263,7 @@ describe('WaysRoot - Context Nesting', () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: 'root.nav.leaf',
-          texts: ['Open'],
+          text: 'Open',
           contextMetadata: expect.objectContaining({
             name: 'root.nav.leaf',
             label: 'root context\n\nnav context\n\nleaf context',
@@ -277,13 +277,13 @@ describe('WaysRoot - Context Nesting', () => {
 
   it('captures a base-locale view once per context fingerprint', async () => {
     const key = 'cta.button-label';
-    const textsHash = '["Open","cta.button-label"]';
-    const encryptedTranslation = encryptTranslationValues({
-      translatedTexts: ['Open'],
-      sourceTexts: ['Open'],
+    const textHash = '["Open","cta.button-label"]';
+    const encryptedTranslation = encryptTranslationValue({
+      translatedText: 'Open',
+      sourceText: 'Open',
       locale: 'en-US',
       key,
-      textsHash,
+      textHash,
     });
 
     vi.mocked(fetchTranslations).mockResolvedValue({
@@ -291,7 +291,7 @@ describe('WaysRoot - Context Nesting', () => {
         {
           locale: 'en-US',
           key,
-          textsHash,
+          textHash,
           contextFingerprint: JSON.stringify({
             name: key,
             label: '',
@@ -321,7 +321,7 @@ describe('WaysRoot - Context Nesting', () => {
     expect(vi.mocked(fetchTranslations).mock.calls[0]?.[0]?.[0]).toEqual(
       expect.objectContaining({
         key,
-        textsHash,
+        textHash,
         baseLocale: 'en-US',
         targetLocale: 'en-US',
         contextFingerprint: JSON.stringify({

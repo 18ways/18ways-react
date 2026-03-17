@@ -38,20 +38,20 @@ describe('WaysRoot - Performance and Caching', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Text 1","test-key"]',
-          translation: ['Texto 1'],
+          textHash: '["Text 1","test-key"]',
+          translation: 'Texto 1',
         },
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Text 2","test-key"]',
-          translation: ['Texto 2'],
+          textHash: '["Text 2","test-key"]',
+          translation: 'Texto 2',
         },
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Text 3","test-key"]',
-          translation: ['Texto 3'],
+          textHash: '["Text 3","test-key"]',
+          translation: 'Texto 3',
         },
       ],
       errors: [],
@@ -75,9 +75,9 @@ describe('WaysRoot - Performance and Caching', () => {
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
       expect.arrayContaining([
-        expect.objectContaining({ texts: ['Text 1'] }),
-        expect.objectContaining({ texts: ['Text 2'] }),
-        expect.objectContaining({ texts: ['Text 3'] }),
+        expect.objectContaining({ text: 'Text 1' }),
+        expect.objectContaining({ text: 'Text 2' }),
+        expect.objectContaining({ text: 'Text 3' }),
       ])
     );
   });
@@ -88,8 +88,8 @@ describe('WaysRoot - Performance and Caching', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Duplicate","test-key"]',
-          translation: ['Duplicado'],
+          textHash: '["Duplicate","test-key"]',
+          translation: 'Duplicado',
         },
       ],
       errors: [],
@@ -112,7 +112,7 @@ describe('WaysRoot - Performance and Caching', () => {
 
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ texts: ['Duplicate'] })])
+      expect.arrayContaining([expect.objectContaining({ text: 'Duplicate' })])
     );
     expect(vi.mocked(fetchTranslations).mock.calls[0][0]).toHaveLength(1);
   });
@@ -121,7 +121,7 @@ describe('WaysRoot - Performance and Caching', () => {
     window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
       'es-ES': {
         'test-key': {
-          '["Cached","test-key"]': ['En caché'],
+          '["Cached","test-key"]': 'En caché',
         },
       },
     };
@@ -149,8 +149,8 @@ describe('WaysRoot - Performance and Caching', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Persistent","test-key"]',
-          translation: ['Persistente'],
+          textHash: '["Persistent","test-key"]',
+          translation: 'Persistente',
         },
       ],
       errors: [],

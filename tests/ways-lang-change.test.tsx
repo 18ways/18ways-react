@@ -50,7 +50,7 @@ describe('WaysRoot - Locale Changes', () => {
     window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
       'en-GB': {
         'key-1': {
-          '["Hello","key-1"]': ['Hello'],
+          '["Hello","key-1"]': 'Hello',
         },
       },
     };
@@ -64,10 +64,10 @@ describe('WaysRoot - Locale Changes', () => {
       data: entries.map((entry) => ({
         locale: entry.targetLocale,
         key: entry.key,
-        textsHash: entry.textsHash,
+        textHash: entry.textHash,
         contextFingerprint: entry.contextFingerprint ?? null,
         translationId: 'group-1',
-        translation: [entry.targetLocale === 'es-ES' ? 'Hola' : 'Hello'],
+        translation: entry.targetLocale === 'es-ES' ? 'Hola' : 'Hello',
       })),
       errors: [],
     }));
@@ -102,8 +102,8 @@ describe('WaysRoot - Locale Changes', () => {
         {
           locale: 'es-ES',
           key: 'key-1',
-          textsHash: '["Hello","key-1"]',
-          translation: ['Hola'],
+          textHash: '["Hello","key-1"]',
+          translation: 'Hola',
         },
       ],
       errors: [],

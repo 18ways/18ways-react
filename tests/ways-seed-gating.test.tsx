@@ -122,8 +122,8 @@ describe('WaysRoot - Seed gating', () => {
         {
           locale: 'es-ES',
           key: 'key-1',
-          textsHash: '["Hello","key-1"]',
-          translation: ['Hola'],
+          textHash: '["Hello","key-1"]',
+          translation: 'Hola',
         },
       ],
       errors: [],
@@ -146,7 +146,7 @@ describe('WaysRoot - Seed gating', () => {
     seedDeferred.resolve({
       data: {
         'key-1': {
-          '["Hello","key-1"]': ['Hola'],
+          '["Hello","key-1"]': 'Hola',
         },
       },
     });
@@ -168,7 +168,7 @@ describe('WaysRoot - Seed gating', () => {
             resolve({
               data: {
                 'key-1': {
-                  '["Hello","key-1"]': ['Hola'],
+                  '["Hello","key-1"]': 'Hola',
                 },
               },
             });
@@ -236,8 +236,8 @@ describe('WaysRoot - Seed gating', () => {
         {
           locale: 'es-ES',
           key: 'key-1',
-          textsHash: '["Hello","key-1"]',
-          translation: ['Hola'],
+          textHash: '["Hello","key-1"]',
+          translation: 'Hola',
         },
       ],
       errors: [],

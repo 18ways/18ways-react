@@ -12,7 +12,7 @@ export type RichTextSlotRenderers = Record<string, React.ComponentType<{ childre
 export type ExtractedTranslationMessage =
   | {
       kind: 'plain';
-      texts: string[];
+      text: string;
     }
   | {
       kind: 'rich';
@@ -150,7 +150,7 @@ export const extractTranslationMessage = (
 
     return {
       kind: 'plain',
-      texts: [fullText],
+      text: fullText,
     };
   }
 

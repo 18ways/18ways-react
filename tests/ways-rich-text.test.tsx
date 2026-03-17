@@ -20,10 +20,10 @@ vi.mock('@18ways/core/common', async () => {
   };
 });
 
-const expectSingleTranslationRequest = (expectedTexts: string[]) => {
+const expectSingleTranslationRequest = (expectedText: string) => {
   expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith([
     expect.objectContaining({
-      texts: expectedTexts,
+      text: expectedText,
     }),
   ]);
 };
@@ -57,16 +57,16 @@ describe('WaysRoot - Rich Text', () => {
   });
 
   it('serializes JSX-rich content as a single markup string and renders translated output', async () => {
-    const sourceTexts = ['If you want to <link>click here</link> then you will see more'];
-    const translatedTexts = ['Si quieres <link>hacer clic aquí</link> verás más'];
+    const sourceText = 'If you want to <link>click here</link> then you will see more';
+    const translatedText = 'Si quieres <link>hacer clic aquí</link> verás más';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'rich-key',
-          textsHash: JSON.stringify([...sourceTexts, 'rich-key']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'rich-key']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -90,19 +90,19 @@ describe('WaysRoot - Rich Text', () => {
     expect(normalizeHtml(output.innerHTML)).toBe(
       'Si quieres <a href="/docs">hacer clic aquí</a> verás más'
     );
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('escapes literal angle brackets inside rich source text', async () => {
-    const sourceTexts = ['2 &lt; 3 and <link>learn more</link>'];
+    const sourceText = '2 &lt; 3 and <link>learn more</link>';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'escaped-rich-key',
-          textsHash: JSON.stringify([...sourceTexts, 'escaped-rich-key']),
-          translation: sourceTexts,
+          textHash: JSON.stringify([sourceText, 'escaped-rich-key']),
+          translation: sourceText,
         },
       ],
       errors: [],
@@ -124,20 +124,20 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('2 < 3 and learn more');
     expect(normalizeHtml(output.innerHTML)).toBe('2 &lt; 3 and <a href="/docs">learn more</a>');
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('renders void intrinsic elements without passing children back into React', async () => {
-    const sourceTexts = ['Line one.<br />Line two.'];
-    const translatedTexts = ['Linea dos.<br />Linea uno.'];
+    const sourceText = 'Line one.<br />Line two.';
+    const translatedText = 'Linea dos.<br />Linea uno.';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'void-element-slot',
-          textsHash: JSON.stringify([...sourceTexts, 'void-element-slot']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'void-element-slot']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -161,20 +161,20 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('Linea dos.Linea uno.');
     expect(normalizeHtml(output.innerHTML)).toBe('Linea dos.<br>Linea uno.');
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('serializes empty non-void elements as self-closing placeholders', async () => {
-    const sourceTexts = ['Before<slot1 />After'];
-    const translatedTexts = ['Despues<slot1 />Antes'];
+    const sourceText = 'Before<slot1 />After';
+    const translatedText = 'Despues<slot1 />Antes';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'empty-non-void-slot',
-          textsHash: JSON.stringify([...sourceTexts, 'empty-non-void-slot']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'empty-non-void-slot']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -198,20 +198,20 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('DespuesAntes');
     expect(normalizeHtml(output.innerHTML)).toBe('Despues<p></p>Antes');
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('can completely reorder two different component slots', async () => {
-    const sourceTexts = ['Read <link>the docs</link> or <bold>act now</bold>.'];
-    const translatedTexts = ['<bold>Actua ahora</bold> o lee <link>la documentacion</link>.'];
+    const sourceText = 'Read <link>the docs</link> or <bold>act now</bold>.';
+    const translatedText = '<bold>Actua ahora</bold> o lee <link>la documentacion</link>.';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'reordered-two-slots',
-          textsHash: JSON.stringify([...sourceTexts, 'reordered-two-slots']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'reordered-two-slots']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -235,20 +235,20 @@ describe('WaysRoot - Rich Text', () => {
     expect(normalizeHtml(output.innerHTML)).toBe(
       '<strong>Actua ahora</strong> o lee <a href="/docs">la documentacion</a>.'
     );
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('renders nested slots alongside another sibling slot after reordering', async () => {
-    const sourceTexts = ['<bold><link>Open</link></bold> and <slot1>New badge</slot1>'];
-    const translatedTexts = ['<slot1>Insignia nueva</slot1>: <bold><link>Abrir</link></bold>'];
+    const sourceText = '<bold><link>Open</link></bold> and <slot1>New badge</slot1>';
+    const translatedText = '<slot1>Insignia nueva</slot1>: <bold><link>Abrir</link></bold>';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'nested-and-sibling-slots',
-          textsHash: JSON.stringify([...sourceTexts, 'nested-and-sibling-slots']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'nested-and-sibling-slots']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -275,20 +275,20 @@ describe('WaysRoot - Rich Text', () => {
     expect(normalizeHtml(output.innerHTML)).toBe(
       '<span class="badge">Insignia nueva</span>: <b><a href="/open">Abrir</a></b>'
     );
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('supports custom React components when an alias is provided', async () => {
-    const sourceTexts = ['<pill>New</pill> <link>launch notes</link>'];
-    const translatedTexts = ['<link>notas del lanzamiento</link> <pill>Novedad</pill>'];
+    const sourceText = '<pill>New</pill> <link>launch notes</link>';
+    const translatedText = '<link>notas del lanzamiento</link> <pill>Novedad</pill>';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'custom-component-slot',
-          textsHash: JSON.stringify([...sourceTexts, 'custom-component-slot']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'custom-component-slot']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -312,20 +312,20 @@ describe('WaysRoot - Rich Text', () => {
     expect(normalizeHtml(output.innerHTML)).toBe(
       '<a href="/launch">notas del lanzamiento</a> <span class="pill" data-kind="pill">Novedad</span>'
     );
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('falls back to slot names for custom React components without a components alias', async () => {
-    const sourceTexts = ['<slot1>New</slot1> <link>launch notes</link>'];
-    const translatedTexts = ['<link>notas del lanzamiento</link> <slot1>Novedad</slot1>'];
+    const sourceText = '<slot1>New</slot1> <link>launch notes</link>';
+    const translatedText = '<link>notas del lanzamiento</link> <slot1>Novedad</slot1>';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'custom-component-without-alias',
-          textsHash: JSON.stringify([...sourceTexts, 'custom-component-without-alias']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'custom-component-without-alias']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -349,22 +349,20 @@ describe('WaysRoot - Rich Text', () => {
     expect(normalizeHtml(output.innerHTML)).toBe(
       '<a href="/launch">notas del lanzamiento</a> <span class="pill" data-kind="pill">Novedad</span>'
     );
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 
   it('preserves distinct identities for repeated bold slots when they are reordered', async () => {
-    const sourceTexts = ['<bold>Fast</bold>, <bold2>safe</bold2>, and <bold3>simple</bold3>.'];
-    const translatedTexts = [
-      '<bold3>Sencillo</bold3>, <bold2>seguro</bold2>, y <bold>rapido</bold>.',
-    ];
+    const sourceText = '<bold>Fast</bold>, <bold2>safe</bold2>, and <bold3>simple</bold3>.';
+    const translatedText = '<bold3>Sencillo</bold3>, <bold2>seguro</bold2>, y <bold>rapido</bold>.';
 
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'reordered-duplicate-bold-slots',
-          textsHash: JSON.stringify([...sourceTexts, 'reordered-duplicate-bold-slots']),
-          translation: translatedTexts,
+          textHash: JSON.stringify([sourceText, 'reordered-duplicate-bold-slots']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -388,6 +386,6 @@ describe('WaysRoot - Rich Text', () => {
     expect(normalizeHtml(output.innerHTML)).toBe(
       '<b>Sencillo</b>, <b>seguro</b>, y <b>rapido</b>.'
     );
-    expectSingleTranslationRequest(sourceTexts);
+    expectSingleTranslationRequest(sourceText);
   });
 });

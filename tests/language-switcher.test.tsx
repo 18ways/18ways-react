@@ -124,10 +124,10 @@ describe('LanguageSwitcher', () => {
     window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
       'en-GB': {
         'key-1': {
-          '["Hello","key-1"]': ['Hello'],
+          '["Hello","key-1"]': 'Hello',
         },
         content: {
-          '["Hello","content"]': ['Hello'],
+          '["Hello","content"]': 'Hello',
         },
       },
     };
@@ -160,8 +160,8 @@ describe('LanguageSwitcher', () => {
           {
             locale: 'es-ES',
             key: 'key-1',
-            textsHash: '["Hello","key-1"]',
-            translation: ['Hola'],
+            textHash: '["Hello","key-1"]',
+            translation: 'Hola',
           },
         ],
         errors: [],
@@ -260,8 +260,8 @@ describe('LanguageSwitcher', () => {
           {
             locale: 'es-ES',
             key: 'content',
-            textsHash: '["Hello","content"]',
-            translation: ['Hola'],
+            textHash: '["Hello","content"]',
+            translation: 'Hola',
           },
         ],
         errors: [],

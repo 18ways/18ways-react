@@ -28,7 +28,7 @@ import {
   fetchSeed,
   generateHashId,
   DEFAULT_TRANSLATION_FALLBACK_CONFIG,
-  buildTranslationFallbackValues,
+  buildTranslationFallbackValue,
   type TranslationContextInput,
   type TranslationContextInputObject,
   type TranslationContextValue,
@@ -40,7 +40,7 @@ import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/tr
 import { registerQueueClearFn } from './testing';
 import { registerRuntimeResetFn } from './testing';
 import { readAcceptedLocalesFromWindow } from '@18ways/core/client-accepted-locales';
-import { decryptTranslationValues } from '@18ways/core/crypto';
+import { decryptTranslationValue } from '@18ways/core/crypto';
 import {
   InternalLanguageSwitcher,
   type LanguageSwitcherClassNameOverrides,
@@ -181,12 +181,12 @@ const buildLanguagesFromLocaleCodes = (localeCodes: string[]): Language[] =>
 interface TranslateTextParams {
   baseLocale?: string;
   targetLocale: string;
-  texts: string[];
+  text: string;
 }
 
 interface ContextualTranslateTextParams extends TranslateTextParams {
   key: string;
-  textsHash: string;
+  textHash: string;
   contextFingerprint?: string;
   contextMetadata?: TranslationContextValue;
 }
@@ -477,7 +477,7 @@ type WaysRootContextType = {
   getPendingSeedPromise: SeedPromiseLookup;
   ensureSeedPromise: SeedPromiseEnsure;
   completedTranslations: Translations;
-  setCompletedTranslations: (keyPath: string[], translation: string[]) => void;
+  setCompletedTranslations: (keyPath: string[], translation: string) => void;
   store: TranslationStore;
 };
 
@@ -786,7 +786,7 @@ const WaysRoot: React.FC<{
       : snapshot.translations;
 
   const setCompletedTranslations = useCallback(
-    (keyPath: string[], translation: string[]) => {
+    (keyPath: string[], translation: string) => {
       store.setCompletedTranslation(keyPath, translation);
     },
     [store]
@@ -1467,16 +1467,16 @@ export const useT = ({
       }
 
       const extractedMessage = extractTranslationMessage(children, components);
-      const texts =
-        extractedMessage.kind === 'plain' ? extractedMessage.texts : [extractedMessage.markup];
+      const sourceText =
+        extractedMessage.kind === 'plain' ? extractedMessage.text : extractedMessage.markup;
 
-      const translatedTexts = (() => {
+      const translatedText = (() => {
         if (
           extractedMessage.kind === 'plain' &&
           resolvedMessageFormatter === 'waysParser' &&
-          isRuntimeOnlyWaysMessage(texts[0] || '')
+          isRuntimeOnlyWaysMessage(sourceText)
         ) {
-          return texts;
+          return sourceText;
         }
 
         if (
@@ -1486,7 +1486,7 @@ export const useT = ({
           !getFallbackLocale ||
           !getPendingSeedPromise
         ) {
-          return texts;
+          return sourceText;
         }
 
         const baseContextMetadata: TranslationContextValue = contextMetadata || {
@@ -1501,18 +1501,18 @@ export const useT = ({
           : baseContextMetadata;
         const effectiveContextKey = finalContextMetadata.name || contextKey;
         const contextFingerprint = generateHashId(finalContextMetadata);
-        const textsHash = generateHashId([...texts, effectiveContextKey]);
+        const textHash = generateHashId([sourceText, effectiveContextKey]);
         const decryptCachedTranslation = (
-          encryptedTexts: string[],
+          encryptedText: string,
           localeToDecrypt: string
-        ): string[] | null => {
+        ): string | null => {
           try {
-            return decryptTranslationValues({
-              encryptedTexts,
-              sourceTexts: texts,
+            return decryptTranslationValue({
+              encryptedText,
+              sourceText,
               locale: localeToDecrypt,
               key: effectiveContextKey,
-              textsHash,
+              textHash,
             });
           } catch (error) {
             console.error('[18ways] Failed to decrypt cached translation payload:', error);
@@ -1521,51 +1521,48 @@ export const useT = ({
         };
         const queuedEntry: ContextualTranslateTextParams = {
           key: effectiveContextKey,
-          textsHash,
+          textHash,
           baseLocale,
           targetLocale,
-          texts,
+          text: sourceText,
           contextFingerprint,
           contextMetadata: finalContextMetadata,
         };
 
         if (baseLocale && targetLocale && baseLocale === targetLocale) {
           queueTranslation(queuedEntry);
-          return texts;
+          return sourceText;
         }
 
         const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
         const fallbackLocale = getFallbackLocale();
-        const noTranslationFallback = buildTranslationFallbackValues(
+        const noTranslationFallback = buildTranslationFallbackValue(
           resolveTranslationFallbackMode(translationFallbackConfig, targetLocale),
-          texts,
+          sourceText,
           effectiveContextKey
         );
-        const getFallbackTranslation = (): string[] | null => {
+        const getFallbackTranslation = (): string | null => {
           if (!fallbackLocale || fallbackLocale === targetLocale) {
             return null;
           }
 
           const fallbackVal =
-            store.getTranslation(fallbackLocale, effectiveContextKey, textsHash) ||
+            store.getTranslation(fallbackLocale, effectiveContextKey, textHash) ||
             (
               (getInMemoryTranslations()[fallbackLocale] as Record<string, unknown> | undefined)?.[
                 effectiveContextKey
               ] as Record<string, unknown> | undefined
-            )?.[textsHash];
+            )?.[textHash];
           if (!fallbackVal) {
             return null;
           }
 
-          const decryptedFallback = decryptCachedTranslation(
-            fallbackVal as string[],
-            fallbackLocale
-          );
+          const decryptedFallback = decryptCachedTranslation(fallbackVal as string, fallbackLocale);
           if (!decryptedFallback) {
             return null;
           }
 
-          return texts.map((text, index) => decryptedFallback[index] || text);
+          return decryptedFallback;
         };
         const fallbackTranslation = getFallbackTranslation();
         const shouldHoldTargetLocaleDisplay = (): boolean => {
@@ -1590,7 +1587,7 @@ export const useT = ({
         };
 
         if (!shouldHoldTargetLocaleDisplay()) {
-          const cachedVal = store.getTranslation(targetLocale, effectiveContextKey, textsHash);
+          const cachedVal = store.getTranslation(targetLocale, effectiveContextKey, textHash);
           if (cachedVal) {
             const decrypted = decryptCachedTranslation(cachedVal, targetLocale);
             if (decrypted) {
@@ -1648,7 +1645,7 @@ export const useT = ({
       })();
 
       if (extractedMessage.kind === 'rich') {
-        const translatedMarkup = translatedTexts[0] || extractedMessage.markup;
+        const translatedMarkup = translatedText || extractedMessage.markup;
         const parsedTranslatedMarkup = parseRichTextMarkupAgainstSource(
           translatedMarkup,
           extractedMessage.value
@@ -1673,7 +1670,6 @@ export const useT = ({
         });
       }
 
-      const translatedText = translatedTexts[0] ?? texts[0] ?? '';
       const textWithVars = formatWithMessageFormatter(
         resolvedMessageFormatter,
         vars,

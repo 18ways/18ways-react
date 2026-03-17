@@ -39,7 +39,7 @@ describe('WaysRoot - Error Handling', () => {
         {
           locale: 'es-ES',
           key: 'retry-key',
-          textsHash: '["Retry me","retry-key"]',
+          textHash: '["Retry me","retry-key"]',
         },
       ],
     });
@@ -89,7 +89,7 @@ describe('WaysRoot - Error Handling', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Hello World","test-key"]',
+          textHash: '["Hello World","test-key"]',
         },
       ],
     });
@@ -129,7 +129,7 @@ describe('WaysRoot - Error Handling', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Error Text","test-key"]',
+          textHash: '["Error Text","test-key"]',
         },
       ],
     });
@@ -175,8 +175,8 @@ describe('WaysRoot - Error Handling', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Locale Mismatch","test-key"]',
-          translation: ['Desajuste de idioma'],
+          textHash: '["Locale Mismatch","test-key"]',
+          translation: 'Desajuste de idioma',
         },
       ],
       errors: [],

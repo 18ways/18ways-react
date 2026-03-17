@@ -20,8 +20,8 @@ export function mockTranslationsAPI(
   data: Array<{
     locale: string;
     key: string;
-    textsHash: string;
-    translation: string[];
+    textHash: string;
+    translation: string;
   }>,
   errors: any[] = []
 ) {
@@ -95,13 +95,13 @@ export function createMockTranslation(
   translation: string,
   contextKey?: string
 ) {
-  const textsHash = contextKey ? `["${key}","${contextKey}"]` : `["${key}"]`;
+  const textHash = contextKey ? `["${key}","${contextKey}"]` : `["${key}"]`;
 
   return {
     locale,
     key: contextKey || '',
-    textsHash,
-    translation: [translation],
+    textHash,
+    translation,
   };
 }
 

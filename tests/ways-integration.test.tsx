@@ -115,8 +115,8 @@ describe('WaysRoot - Full Integration', () => {
         {
           locale: 'es-ES',
           key: 'test',
-          textsHash: '["Persistent Text","test"]',
-          translation: ['Texto Persistente'],
+          textHash: '["Persistent Text","test"]',
+          translation: 'Texto Persistente',
         },
       ],
       errors: [],

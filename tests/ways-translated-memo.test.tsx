@@ -59,8 +59,8 @@ describe('useTranslatedMemo', () => {
         {
           locale: 'es-ES',
           key: 'memo',
-          textsHash: '["Hello","memo"]',
-          translation: ['Hola'],
+          textHash: '["Hello","memo"]',
+          translation: 'Hola',
         },
       ],
       errors: [],
@@ -124,8 +124,8 @@ describe('useTranslatedMemo', () => {
           {
             locale: 'es-ES',
             key: 'memo',
-            textsHash: '["Hello","memo"]',
-            translation: ['Hola'],
+            textHash: '["Hello","memo"]',
+            translation: 'Hola',
           },
         ],
         errors: [],

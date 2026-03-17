@@ -33,8 +33,8 @@ describe('WaysRoot - Message Formatter', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: '["Hello {name}","test-key"]',
-          translation: ['Hola {name}'],
+          textHash: '["Hello {name}","test-key"]',
+          translation: 'Hola {name}',
         },
       ],
       errors: [],
@@ -47,8 +47,8 @@ describe('WaysRoot - Message Formatter', () => {
         {
           locale: 'es-ES',
           key: 'test-key',
-          textsHash: JSON.stringify([source, 'test-key']),
-          translation: [translation],
+          textHash: JSON.stringify([source, 'test-key']),
+          translation,
         },
       ],
       errors: [],

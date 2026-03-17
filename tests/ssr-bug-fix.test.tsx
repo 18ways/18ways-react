@@ -41,8 +41,8 @@ describe('SSR Bug Fix Test', () => {
             {
               locale: 'ja-JP',
               key: 'test',
-              textsHash: 'hash123',
-              translation: ['こんにちは世界'],
+              textHash: 'hash123',
+              translation: 'こんにちは世界',
             },
           ],
           errors: [],

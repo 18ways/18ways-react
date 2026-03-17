@@ -177,13 +177,12 @@ describe('useTranslationLoading', () => {
     window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
       'en-GB': {
         'key-1': {
-          '["Hello","key-1"]': ['Hello'],
+          '["Hello","key-1"]': 'Hello',
         },
       },
       'fr-FR': {
         'key-1': {
-          '["Hello","key-1"]': ['Bonjour'],
-          '["Hello","Goodbye","key-1"]': ['Bonjour'],
+          '["Hello","key-1"]': 'Bonjour',
         },
       },
     };
@@ -213,8 +212,8 @@ describe('useTranslationLoading', () => {
           {
             locale: 'es-ES',
             key: 'key-1',
-            textsHash: '["Hello","key-1"]',
-            translation: ['Hola'],
+            textHash: '["Hello","key-1"]',
+            translation: 'Hola',
           },
         ],
         errors: [],
@@ -272,8 +271,8 @@ describe('useTranslationLoading', () => {
           {
             locale: 'ja-JP',
             key: 'key-1',
-            textsHash: '["Hello","key-1"]',
-            translation: ['こんにちは'],
+            textHash: '["Hello","key-1"]',
+            translation: 'こんにちは',
           },
         ],
         errors: [],
@@ -312,7 +311,7 @@ describe('useTranslationLoading', () => {
       ...(window.__18WAYS_IN_MEMORY_TRANSLATIONS__ || {}),
       'ja-JP': {
         'cookie-consent': {
-          '["Privacy settings","cookie-consent"]': ['プライバシー設定'],
+          '["Privacy settings","cookie-consent"]': 'プライバシー設定',
         },
       },
     };
@@ -340,7 +339,7 @@ describe('useTranslationLoading', () => {
         return {
           data: {
             'key-1': {
-              '["Hello","key-1"]': ['こんにちは'],
+              '["Hello","key-1"]': 'こんにちは',
             },
           },
         };
@@ -350,7 +349,7 @@ describe('useTranslationLoading', () => {
         return {
           data: {
             'key-1': {
-              '["Hello","key-1"]': ['Hola'],
+              '["Hello","key-1"]': 'Hola',
             },
           },
         };
@@ -397,15 +396,15 @@ describe('useTranslationLoading', () => {
       ...(window.__18WAYS_IN_MEMORY_TRANSLATIONS__ || {}),
       'fr-FR': {
         header: {
-          '["Hello","header"]': ['Bonjour'],
+          '["Hello","header"]': 'Bonjour',
         },
         footer: {
-          '["Goodbye","footer"]': ['Au revoir'],
+          '["Goodbye","footer"]': 'Au revoir',
         },
       },
       'ja-JP': {
         header: {
-          '["Hello","header"]': ['こんにちは'],
+          '["Hello","header"]': 'こんにちは',
         },
       },
     };
@@ -433,8 +432,8 @@ describe('useTranslationLoading', () => {
           {
             locale: 'ja-JP',
             key: 'footer',
-            textsHash: '["Goodbye","footer"]',
-            translation: ['さようなら'],
+            textHash: '["Goodbye","footer"]',
+            translation: 'さようなら',
           },
         ],
         errors: [],
@@ -498,8 +497,8 @@ describe('useTranslationLoading', () => {
           {
             locale: 'ja-JP',
             key: 'key-1',
-            textsHash: '["Hello","key-1"]',
-            translation: ['こんにちは'],
+            textHash: '["Hello","key-1"]',
+            translation: 'こんにちは',
           },
         ],
         errors: [],
