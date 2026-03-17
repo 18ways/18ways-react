@@ -16,6 +16,12 @@
       "import": "./testing.ts"
     }
   },
+  "files": [
+    "dist",
+    "*.ts",
+    "*.tsx",
+    "global.d.ts"
+  ],
   "scripts": {
     "build": "bun run bun-build.ts",
     "dev": "bun run --watch bun-build.ts",
