@@ -187,6 +187,18 @@ describe('LanguageSwitcher', () => {
     expect(screen.getAllByText('🇪🇸').length).toBeGreaterThan(0);
   });
 
+  it('renders the demo Caesar locale with the synthetic name and flag', async () => {
+    vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
+    window.__18WAYS_ACCEPTED_LOCALES__ = ['en-GB', 'en-GB-x-caesar'];
+
+    render(<AppWithLanguageSwitcher />);
+
+    fireEvent.click(getTriggerButton());
+
+    expect(await screen.findByRole('option', { name: /Caesar Shift/i })).toBeInTheDocument();
+    expect(screen.getAllByText('🔄').length).toBeGreaterThan(0);
+  });
+
   it('inherits locale cookie persistence from the root Ways runtime', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
     document.cookie = '18ways_locale=; Max-Age=0; Path=/';

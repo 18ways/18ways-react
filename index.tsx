@@ -32,6 +32,8 @@ import {
   type TranslationContextInput,
   type TranslationContextInputObject,
   type TranslationContextValue,
+  getDemoLanguageInfo,
+  isDemoApiKey,
 } from '@18ways/core/common';
 import { parseRichTextMarkupAgainstSource } from '@18ways/core/rich-text';
 import { InjectTranslations } from './inject';
@@ -171,12 +173,64 @@ const cancelContextGc = (contextKey: string): void => {
 };
 
 const buildLanguagesFromLocaleCodes = (localeCodes: string[]): Language[] =>
-  localeCodes.map((code) => ({
-    code,
-    name: code,
-    nativeName: code,
-    flag: localeToFlagEmoji(code),
-  }));
+  localeCodes.map((code) => {
+    const demoLanguage = getDemoLanguageInfo(code);
+    if (demoLanguage) {
+      return demoLanguage;
+    }
+
+    return {
+      code,
+      name: code,
+      nativeName: code,
+      flag: localeToFlagEmoji(code),
+    };
+  });
+
+const logDemoModeLocaleChange = (input: {
+  locale: string;
+  baseLocale: string;
+  previousLocale: string | null;
+}): void => {
+  if (typeof window === 'undefined' || typeof console === 'undefined') {
+    return;
+  }
+
+  const { locale, baseLocale, previousLocale } = input;
+  const demoLanguage = getDemoLanguageInfo(locale);
+  const localeLabel = demoLanguage?.name || locale;
+  const header = previousLocale
+    ? `18ways Demo Mode: language change detected`
+    : `18ways Demo Mode: language detected`;
+
+  console.group(
+    '%c%s',
+    'background:#111827;color:#f9fafb;padding:6px 10px;border-radius:6px;font-weight:800;font-size:13px;',
+    header
+  );
+  console.log(
+    '%cDemo token active',
+    'background:#fde68a;color:#111827;padding:2px 6px;border-radius:4px;font-weight:800;'
+  );
+  console.log(
+    '%cLanguage%c %s',
+    'color:#6b7280;font-weight:700;',
+    'color:inherit;',
+    previousLocale
+      ? `${previousLocale} -> ${locale} (${localeLabel})`
+      : `${locale} (${localeLabel})`
+  );
+  console.log('%cBase locale%c %s', 'color:#6b7280;font-weight:700;', 'color:inherit;', baseLocale);
+  console.log(
+    '%cSign up to get a production token and translate for real!',
+    'color:#b91c1c;font-weight:900;font-size:14px;'
+  );
+  console.log(
+    '%chttps://18ways.com/dashboard',
+    'background:#fca5a5;color:#111827;padding:3px 8px;border-radius:4px;font-weight:900;font-size:15px;'
+  );
+  console.groupEnd();
+};
 
 interface TranslateTextParams {
   baseLocale?: string;
@@ -744,6 +798,7 @@ const WaysRoot: React.FC<{
   const queuedSeedContextsByLocaleRef = useRef<Map<string, Set<string>>>(new Map());
   const isSeedFlushScheduledRef = useRef(false);
   const previousTargetLocaleRef = useRef(defaultLocale);
+  const previousLoggedDemoLocaleRef = useRef<string | null>(null);
 
   const [targetLocale, setTargetLocale] = useState(defaultLocale);
   const [transitionFallbackLocale, setTransitionFallbackLocale] = useState<string | null>(() => {
@@ -761,6 +816,24 @@ const WaysRoot: React.FC<{
   useEffect(() => {
     engine.setLocale(targetLocale);
   }, [engine, targetLocale]);
+
+  useEffect(() => {
+    if (!isDemoApiKey(apiKey)) {
+      return;
+    }
+
+    const previousLocale = previousLoggedDemoLocaleRef.current;
+    if (previousLocale === targetLocale) {
+      return;
+    }
+
+    logDemoModeLocaleChange({
+      locale: targetLocale,
+      baseLocale: resolvedBaseLocale || defaultLocale,
+      previousLocale,
+    });
+    previousLoggedDemoLocaleRef.current = targetLocale;
+  }, [apiKey, defaultLocale, resolvedBaseLocale, targetLocale]);
 
   useEffect(() => {
     if (!locale) {

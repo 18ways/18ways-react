@@ -14,6 +14,8 @@ npm install @18ways/react
 
 ## Basic translation
 
+Use this example exactly as written to test the library locally. `pk_dummy_demo_token` enables the built-in demo mode with the `Caesar Shift` language.
+
 ```tsx
 import { useState } from 'react';
 import { LanguageSwitcher, Ways, T } from '@18ways/react';
@@ -22,7 +24,7 @@ export function App() {
   const [locale, setLocale] = useState('fr-FR');
 
   return (
-    <Ways apiKey="YOUR_18WAYS_PUBLIC_API_KEY" locale={locale} baseLocale="en-GB" context="app">
+    <Ways apiKey="pk_dummy_demo_token" locale={locale} baseLocale="en-GB" context="app">
       <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
       <Ways context="checkout.button">
         <T>Pay now</T>

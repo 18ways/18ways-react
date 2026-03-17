@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { type Language } from '@18ways/core/common';
+import { getDemoLanguageInfo, type Language } from '@18ways/core/common';
 import { readCookieFromDocument, writeCookieToDocument } from '@18ways/core/cookie-utils';
 import { canonicalizeLocale, WAYS_LOCALE_COOKIE_NAME } from '@18ways/core/i18n-shared';
 import { internalT } from '@18ways/core/internal-i18n';
@@ -139,6 +139,30 @@ const getCompactLanguageLabel = (
   return `${languageLabel} (${regionSubtag})`;
 };
 
+const getPreferredLanguageLabel = (
+  localeCode: string,
+  displayLocale: string,
+  fallback: string
+): string => {
+  if (getDemoLanguageInfo(localeCode)) {
+    return fallback;
+  }
+
+  return getBaseLanguageLabel(localeCode, displayLocale, fallback);
+};
+
+const getPreferredCompactLanguageLabel = (
+  localeCode: string,
+  displayLocale: string,
+  fallback: string
+): string => {
+  if (getDemoLanguageInfo(localeCode)) {
+    return fallback;
+  }
+
+  return getCompactLanguageLabel(localeCode, displayLocale, fallback);
+};
+
 const optionIdFor = (listboxId: string, locale: string): string =>
   `${listboxId}-option-${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
@@ -193,8 +217,8 @@ const LanguageOption: React.FC<LanguageOptionProps> = ({
   classNames,
   unstyled,
 }) => {
-  const localizedName = getBaseLanguageLabel(lang.code, currentLocale, lang.name || lang.code);
-  const nativeName = getCompactLanguageLabel(
+  const localizedName = getPreferredLanguageLabel(lang.code, currentLocale, lang.name || lang.code);
+  const nativeName = getPreferredCompactLanguageLabel(
     lang.code,
     lang.code,
     lang.nativeName || lang.name || lang.code
@@ -606,7 +630,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
     nativeName: currentLocale,
     flag: '🌐',
   };
-  const currentLocaleName = getBaseLanguageLabel(
+  const currentLocaleName = getPreferredLanguageLabel(
     currentLanguage.code,
     currentLanguage.code,
     currentLanguage.nativeName || currentLanguage.name
