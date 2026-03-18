@@ -34,4 +34,18 @@ export function App() {
 }
 ```
 
+## Inline placeholder alias
+
+`<T>` also accepts an inline alias for simple placeholder values so you can keep the value beside the message text while still using the existing formatter internally.
+
+```tsx
+<T>Hello today is {{ theDate, format: 'date, long' }}</T>
+```
+
+The example above is treated like this behind the scenes:
+
+```tsx
+<T vars={{ theDate }}>{'Hello today is {theDate, date, dateStyle:long}'}</T>
+```
+
 Docs: [18ways.com/docs](https://18ways.com/docs)

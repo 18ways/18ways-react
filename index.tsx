@@ -1,3 +1,5 @@
+/// <reference path="./global.d.ts" />
+
 'use client';
 
 import React, {
@@ -1466,6 +1468,13 @@ type TOptions = {
   context?: TranslationContextInput;
 };
 
+type TInlineAliasSpec = {
+  format?: string;
+  [key: string]: unknown;
+};
+
+type TRenderableChild = ReactNode | TInlineAliasSpec | readonly TRenderableChild[];
+
 interface TFunction {
   (children: string, options?: Omit<TOptions, 'components'>): string;
   <X extends ReactNode>(
@@ -1489,6 +1498,158 @@ const EMPTY_LOADING_SNAPSHOT: TranslationStoreSnapshot = {
   hasInFlight: false,
 };
 const getEmptyLoadingSnapshot = () => EMPTY_LOADING_SNAPSHOT;
+
+const INLINE_ALIAS_RESERVED_KEYS = new Set(['format']);
+const INLINE_ALIAS_DATE_STYLES = new Set(['short', 'medium', 'long', 'full']);
+
+type InlineAliasDescriptor = {
+  variableName: string;
+  variableValue: unknown;
+  format?: string;
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const extractInlineAliasDescriptor = (value: unknown): InlineAliasDescriptor | null => {
+  if (!isPlainObject(value) || React.isValidElement(value)) {
+    return null;
+  }
+
+  const rawFormat = value.format;
+  if (rawFormat !== undefined && typeof rawFormat !== 'string') {
+    return null;
+  }
+
+  const variableEntries = Object.entries(value).filter(
+    ([key]) => !INLINE_ALIAS_RESERVED_KEYS.has(key)
+  );
+  if (variableEntries.length !== 1) {
+    return null;
+  }
+
+  const [variableName, variableValue] = variableEntries[0];
+  if (!variableName) {
+    return null;
+  }
+
+  const trimmedFormat = rawFormat?.trim();
+  return {
+    variableName,
+    variableValue,
+    format: trimmedFormat ? trimmedFormat : undefined,
+  };
+};
+
+const buildInlineAliasPlaceholder = ({
+  variableName,
+  format,
+}: Omit<InlineAliasDescriptor, 'variableValue'>): string => {
+  if (!format) {
+    return `{${variableName}}`;
+  }
+
+  const segments = format
+    .split(',')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length === 0) {
+    return `{${variableName}}`;
+  }
+
+  const [formatType, ...options] = segments;
+  const normalizedOptions =
+    (formatType === 'date' || formatType === 'datetime') &&
+    options.length === 1 &&
+    INLINE_ALIAS_DATE_STYLES.has(options[0])
+      ? [`dateStyle:${options[0]}`]
+      : options;
+
+  return `{${[variableName, formatType, ...normalizedOptions].join(', ')}}`;
+};
+
+const mergeAliasVars = (
+  left?: Record<string, any>,
+  right?: Record<string, any>
+): Record<string, any> | undefined => {
+  if (!left && !right) {
+    return undefined;
+  }
+
+  return {
+    ...(left || {}),
+    ...(right || {}),
+  };
+};
+
+const normalizeInlineAliases = (
+  value: TRenderableChild
+): {
+  children: ReactNode;
+  vars?: Record<string, any>;
+  changed: boolean;
+} => {
+  const aliasDescriptor = extractInlineAliasDescriptor(value);
+  if (aliasDescriptor) {
+    return {
+      children: buildInlineAliasPlaceholder(aliasDescriptor),
+      vars: {
+        [aliasDescriptor.variableName]: aliasDescriptor.variableValue,
+      },
+      changed: true,
+    };
+  }
+
+  if (Array.isArray(value)) {
+    let changed = false;
+    let aliasVars: Record<string, any> | undefined;
+
+    const children = value.map((child) => {
+      const normalizedChild = normalizeInlineAliases(child);
+      changed = changed || normalizedChild.changed;
+      aliasVars = mergeAliasVars(aliasVars, normalizedChild.vars);
+      return normalizedChild.children;
+    });
+
+    return {
+      children,
+      vars: aliasVars,
+      changed,
+    };
+  }
+
+  if (React.isValidElement(value)) {
+    const originalChildren = (value.props as { children?: TRenderableChild }).children;
+    if (originalChildren === undefined) {
+      return {
+        children: value,
+        vars: undefined,
+        changed: false,
+      };
+    }
+
+    const normalizedChildren = normalizeInlineAliases(originalChildren);
+    if (!normalizedChildren.changed) {
+      return {
+        children: value,
+        vars: normalizedChildren.vars,
+        changed: false,
+      };
+    }
+
+    return {
+      children: React.cloneElement(value, undefined, normalizedChildren.children),
+      vars: normalizedChildren.vars,
+      changed: true,
+    };
+  }
+
+  return {
+    children: value as ReactNode,
+    vars: undefined,
+    changed: false,
+  };
+};
 
 export const useT = ({
   baseLocale: tBaseLocale,
@@ -1855,7 +2016,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
   );
 };
 
-export const T: <X extends ReactNode | string>(props: {
+export const T: <X extends TRenderableChild>(props: {
   children: X;
   vars?: Record<string, any>;
   context?: TranslationContextInput;
@@ -1863,23 +2024,19 @@ export const T: <X extends ReactNode | string>(props: {
   targetLocale?: string;
   components?: ComponentsMap;
   fixed?: boolean;
-}) => typeof props.components extends undefined ? X : ReactNode = ({
-  children,
-  vars,
-  context,
-  baseLocale,
-  targetLocale,
-  components,
-  fixed,
-}) => {
+}) => ReactNode = ({ children, vars, context, baseLocale, targetLocale, components, fixed }) => {
   const t = useT({
     baseLocale,
     targetLocale,
   });
 
+  const normalized = normalizeInlineAliases(children);
+
   if (fixed) {
-    return children;
+    return normalized.children;
   }
 
-  return t(children, { vars, components, context });
+  const resolvedVars = mergeAliasVars(vars, normalized.vars);
+
+  return t(normalized.children, { vars: resolvedVars, components, context });
 };

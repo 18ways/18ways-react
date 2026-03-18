@@ -240,6 +240,31 @@ describe('WaysRoot - Message Formatter', () => {
     });
   });
 
+  it('supports inline alias syntax for translated date placeholders', async () => {
+    const source = `Hello today is {theDate, date, dateStyle:long}`;
+    const translation = `Hola hoy es {theDate, date, dateStyle:long}`;
+    const theDate = new Date(Date.UTC(2024, 0, 15));
+    mockWaysParserTranslation(translation, source);
+
+    render(
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+        <Ways context="test-key">
+          <T>Hello today is {{ theDate, format: 'date, long' }}</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(formatWaysParser({ theDate }, translation, 'es-ES'))
+      ).toBeInTheDocument();
+    });
+  });
+
   it('skips translation fetches for runtime-only waysParser messages', async () => {
     const source = '{createdAt, date, dateStyle:short}';
     const vars = { createdAt: new Date(Date.UTC(2024, 0, 15, 12)) };
@@ -260,6 +285,29 @@ describe('WaysRoot - Message Formatter', () => {
 
     await waitFor(() => {
       expect(screen.getByText(formatWaysParser(vars, source, 'es-ES'))).toBeInTheDocument();
+    });
+  });
+
+  it('treats inline alias syntax as runtime-only when the rewritten message is runtime-only', async () => {
+    const theDate = new Date(Date.UTC(2024, 0, 15, 12));
+    const source = '{theDate, date, dateStyle:long}';
+
+    render(
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+        <Ways context="test-key">
+          <T>{{ theDate, format: 'date, long' }}</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(fetchTranslations).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText(formatWaysParser({ theDate }, source, 'es-ES'))).toBeInTheDocument();
     });
   });
 
