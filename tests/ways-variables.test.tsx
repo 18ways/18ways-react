@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { Ways, T } from '../index';
-import { fetchTranslations } from '@18ways/core/common';
+import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { clearQueueForTests } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
@@ -15,6 +15,7 @@ vi.mock('@18ways/core/common', async () => {
       total: 0,
       translationFallback: { default: 'source', overrides: [] },
     })),
+    fetchSeed: vi.fn(),
     fetchTranslations: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
   };
@@ -24,6 +25,7 @@ describe('WaysRoot - Variable Substitution', () => {
   beforeEach(() => {
     delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
     vi.clearAllMocks();
+    vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });
 
   it('should handle simple variable substitution', async () => {

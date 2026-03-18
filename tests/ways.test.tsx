@@ -48,7 +48,7 @@ describe('WaysRoot - Seed call behavior', () => {
     expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
   });
 
-  it('does not call seed on client render for nested contexts when locale differs', () => {
+  it('calls seed on client render for nested contexts when locale differs', async () => {
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-GB">
         <Ways context="key-1">
@@ -57,7 +57,9 @@ describe('WaysRoot - Seed call behavior', () => {
       </Ways>
     );
 
-    expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES');
+    });
   });
 
   it('passes cacheTtl to init when provided', () => {

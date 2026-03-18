@@ -386,6 +386,10 @@ describe('LanguageSwitcher', () => {
   it('prioritizes the active locale ahead of browser preference suggestions', async () => {
     render(<AppWithSuggestedLanguageSwitcher initialLocale="fr-FR" preferredLocales={['en-GB']} />);
 
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
     fireEvent.click(getTriggerButton());
 
     const suggestedOptionTexts = getSectionOptionTexts(internalT('fr-FR', 'suggestedLanguages'));
@@ -477,6 +481,10 @@ describe('LanguageSwitcher', () => {
         acceptedLocales={['fr-FR', 'fr-CA', 'en-GB', 'en-US', 'de-DE', 'es-ES']}
       />
     );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
 
     fireEvent.click(getTriggerButton());
 

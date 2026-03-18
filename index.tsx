@@ -1087,10 +1087,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
     baseLocale && targetLocale && baseLocale !== targetLocale
   );
   const hasLocaleChanged = previousTargetLocaleRef.current !== targetLocale;
-  const shouldEnsureSeedPromise =
-    shouldBlockInitialRender &&
-    contextKey !== 'root' &&
-    (typeof window === 'undefined' || hasLocaleChanged);
+  const shouldEnsureSeedPromise = shouldBlockInitialRender && contextKey !== 'root';
   const hasPendingClientLocaleTransition =
     typeof window !== 'undefined' &&
     (hasLocaleChanged ||

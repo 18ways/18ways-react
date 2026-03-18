@@ -138,4 +138,35 @@ describe('useTranslatedMemo', () => {
       expect(screen.getByTestId('non-suspending-memo-value').textContent).toBe('Hola!');
     });
   });
+
+  it('hydrates client-mounted translated scopes from seed before falling back to translate', async () => {
+    vi.mocked(fetchSeed).mockResolvedValue({
+      data: {
+        memo: {
+          '["Hello","memo"]': 'Hola',
+        },
+      },
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+
+    render(
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-GB">
+        <Ways context="memo">
+          <NonSuspendingMemoConsumer suffix="!" />
+        </Ways>
+      </Ways>
+    );
+
+    expect(screen.getByTestId('non-suspending-memo-value').textContent).toBe('Hello!');
+
+    await waitFor(() => {
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['memo'], 'es-ES');
+      expect(screen.getByTestId('non-suspending-memo-value').textContent).toBe('Hola!');
+    });
+
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
+  });
 });

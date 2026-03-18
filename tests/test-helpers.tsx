@@ -119,6 +119,7 @@ export function setupCommonMocks() {
         total: 0,
         translationFallback: { default: 'source', overrides: [] },
       })),
+      fetchSeed: vi.fn(),
       fetchTranslations: vi.fn(),
       generateHashId: vi.fn((x) => JSON.stringify(x)),
     };

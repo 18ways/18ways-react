@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { Ways, T, useT } from '../index';
-import { fetchTranslations } from '@18ways/core/common';
+import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { encryptTranslationValue } from '@18ways/core/crypto';
 import { clearQueueForTests } from '../testing';
 
@@ -16,6 +16,7 @@ vi.mock('@18ways/core/common', async () => {
       total: 0,
       translationFallback: { default: 'source', overrides: [] },
     })),
+    fetchSeed: vi.fn(),
     fetchTranslations: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
   };
@@ -25,6 +26,7 @@ describe('WaysRoot - Context Nesting', () => {
   beforeEach(() => {
     delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
     vi.clearAllMocks();
+    vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });
 
   it('should isolate context keys properly', async () => {

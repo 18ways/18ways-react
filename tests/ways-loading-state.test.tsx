@@ -323,6 +323,12 @@ describe('useTranslationLoading', () => {
 
     render(<CachedLocaleReturnApp />);
 
+    await waitFor(() => {
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['cookie-consent'], 'fr-FR');
+    });
+
+    vi.mocked(fetchSeed).mockClear();
+
     fireEvent.click(screen.getByText('Switch locale'));
 
     await waitFor(() => {
