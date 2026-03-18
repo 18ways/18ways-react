@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { getDemoLanguageInfo, type Language } from '@18ways/core/common';
 import { readCookieFromDocument, writeCookieToDocument } from '@18ways/core/cookie-utils';
 import { canonicalizeLocale, WAYS_LOCALE_COOKIE_NAME } from '@18ways/core/i18n-shared';
 import { internalT } from '@18ways/core/internal-i18n';
+import { rankSupportedLocalesByPreference } from '@18ways/core/locale-drivers';
+import { formatDisplayName } from '@18ways/core/parsers/intl-runtime';
 import {
   languageSwitcherStyles,
   type LanguageSwitcherStyleKey,
@@ -26,6 +28,8 @@ const LOCALE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 // before deciding there was no loading phase to observe.
 const CHANGE_SETTLE_TIMEOUT_MS = 1000;
 const CHANGE_HARD_TIMEOUT_MS = 10000;
+const ENHANCED_SWITCHER_MIN_LANGUAGE_COUNT = 5;
+const SEARCH_TOKEN_SEPARATOR = /[\s/(),._-]+/;
 
 export interface LanguageSwitcherProps {
   className?: string;
@@ -35,6 +39,7 @@ export interface LanguageSwitcherProps {
   unstyled?: boolean;
   direction?: 'up' | 'down';
   currentLocale?: string;
+  preferredLocales?: string[];
   onLocaleChange?: (_locale: string) => void;
 }
 
@@ -83,17 +88,22 @@ const getLocaleRegionSubtag = (locale: string): string | null => {
   return null;
 };
 
-const getDisplayNames = (displayLocale: string): Intl.DisplayNames | null => {
-  try {
-    return new Intl.DisplayNames([displayLocale], { type: 'language' });
-  } catch {
-    const fallbackLocale = getLanguageSubtag(displayLocale);
-    try {
-      return new Intl.DisplayNames([fallbackLocale], { type: 'language' });
-    } catch {
-      return null;
-    }
+const getLocalizedDisplayName = (
+  displayLocale: string,
+  value: string,
+  type: Intl.DisplayNamesType
+): string | null => {
+  const localized = formatDisplayName(displayLocale, value, type);
+  if (localized) {
+    return localized;
   }
+
+  const fallbackLocale = getLanguageSubtag(displayLocale);
+  if (fallbackLocale === displayLocale) {
+    return null;
+  }
+
+  return formatDisplayName(fallbackLocale, value, type);
 };
 
 const getLanguageLabel = (
@@ -101,17 +111,16 @@ const getLanguageLabel = (
   displayLocale: string,
   fallback: string
 ): string => {
-  const displayNames = getDisplayNames(displayLocale);
-  if (!displayNames) {
-    return fallback;
-  }
-
-  const fullTag = displayNames.of(languageCode);
+  const fullTag = getLocalizedDisplayName(displayLocale, languageCode, 'language');
   if (fullTag) {
     return fullTag;
   }
 
-  const subtagLabel = displayNames.of(getLanguageSubtag(languageCode));
+  const subtagLabel = getLocalizedDisplayName(
+    displayLocale,
+    getLanguageSubtag(languageCode),
+    'language'
+  );
   return subtagLabel || fallback;
 };
 
@@ -122,6 +131,35 @@ const getBaseLanguageLabel = (
 ): string => {
   const baseLanguageCode = getLanguageSubtag(localeCode);
   return getLanguageLabel(baseLanguageCode, displayLocale, fallback);
+};
+
+const getLocaleRegionLabel = (localeCode: string, displayLocale: string): string | null => {
+  const regionSubtag = getLocaleRegionSubtag(localeCode);
+  if (!regionSubtag) {
+    return null;
+  }
+
+  return getLocalizedDisplayName(displayLocale, regionSubtag, 'region') || regionSubtag;
+};
+
+const getFullLanguageLabel = (
+  localeCode: string,
+  displayLocale: string,
+  fallback: string
+): string => {
+  const fullLocaleLabel = getLocalizedDisplayName(displayLocale, localeCode, 'language');
+  if (fullLocaleLabel) {
+    return fullLocaleLabel;
+  }
+
+  const languageLabel = getBaseLanguageLabel(localeCode, displayLocale, fallback);
+  const regionLabel = getLocaleRegionLabel(localeCode, displayLocale);
+
+  if (!regionLabel) {
+    return languageLabel;
+  }
+
+  return `${languageLabel} (${regionLabel})`;
 };
 
 const getCompactLanguageLabel = (
@@ -137,6 +175,18 @@ const getCompactLanguageLabel = (
   }
 
   return `${languageLabel} (${regionSubtag})`;
+};
+
+const getPreferredFullLanguageLabel = (
+  localeCode: string,
+  displayLocale: string,
+  fallback: string
+): string => {
+  if (getDemoLanguageInfo(localeCode)) {
+    return fallback;
+  }
+
+  return getFullLanguageLabel(localeCode, displayLocale, fallback);
 };
 
 const getPreferredLanguageLabel = (
@@ -165,6 +215,173 @@ const getPreferredCompactLanguageLabel = (
 
 const optionIdFor = (listboxId: string, locale: string): string =>
   `${listboxId}-option-${locale.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+const areSameLocale = (left: string, right: string): boolean =>
+  canonicalizeLocale(left).toLowerCase() === canonicalizeLocale(right).toLowerCase();
+
+const normalizeForSearch = (value: string): string =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+const isPrintableSearchKey = (event: React.KeyboardEvent<HTMLElement>): boolean =>
+  event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey;
+
+const readPreferredLocalesFromBrowser = (): string[] => {
+  if (typeof navigator === 'undefined') {
+    return [];
+  }
+
+  return rankSupportedLocalesByPreference(
+    [...(navigator.languages || []), navigator.language].filter(Boolean)
+  );
+};
+
+const getSearchValuesForLanguage = (lang: Language, currentLocale: string): string[] => {
+  const fallback = lang.nativeName || lang.name || lang.code;
+
+  return [
+    lang.code,
+    lang.name,
+    lang.nativeName || '',
+    getPreferredLanguageLabel(lang.code, currentLocale, fallback),
+    getPreferredFullLanguageLabel(lang.code, currentLocale, fallback),
+    getPreferredCompactLanguageLabel(lang.code, currentLocale, fallback),
+    getPreferredLanguageLabel(lang.code, lang.code, fallback),
+    getPreferredFullLanguageLabel(lang.code, lang.code, fallback),
+    getPreferredCompactLanguageLabel(lang.code, lang.code, fallback),
+    getLocaleRegionLabel(lang.code, currentLocale) || '',
+    getLocaleRegionLabel(lang.code, lang.code) || '',
+  ].filter(Boolean);
+};
+
+const getSubsequenceScore = (query: string, candidate: string): number => {
+  let queryIndex = 0;
+  let firstMatchIndex = -1;
+
+  for (let index = 0; index < candidate.length; index += 1) {
+    if (candidate[index] !== query[queryIndex]) {
+      continue;
+    }
+
+    if (firstMatchIndex < 0) {
+      firstMatchIndex = index;
+    }
+
+    queryIndex += 1;
+    if (queryIndex === query.length) {
+      return 420 - (index - firstMatchIndex) - firstMatchIndex;
+    }
+  }
+
+  return -1;
+};
+
+const getFuzzySearchScore = (query: string, candidates: string[]): number => {
+  let bestScore = -1;
+
+  for (const rawCandidate of candidates) {
+    const candidate = normalizeForSearch(rawCandidate);
+    if (!candidate) {
+      continue;
+    }
+
+    if (candidate === query) {
+      bestScore = Math.max(bestScore, 1000 - candidate.length);
+    }
+
+    if (candidate.startsWith(query)) {
+      bestScore = Math.max(bestScore, 920 - candidate.length);
+    }
+
+    const tokenPrefixMatch = candidate
+      .split(SEARCH_TOKEN_SEPARATOR)
+      .some((token) => token.startsWith(query));
+    if (tokenPrefixMatch) {
+      bestScore = Math.max(bestScore, 860 - candidate.length);
+    }
+
+    const substringIndex = candidate.indexOf(query);
+    if (substringIndex >= 0) {
+      bestScore = Math.max(bestScore, 760 - substringIndex);
+    }
+
+    const subsequenceScore = getSubsequenceScore(query, candidate);
+    if (subsequenceScore >= 0) {
+      bestScore = Math.max(bestScore, subsequenceScore);
+    }
+  }
+
+  return bestScore;
+};
+
+const sortLanguagesAlphabetically = (languages: Language[], currentLocale: string): Language[] => {
+  const collator = new Intl.Collator([currentLocale, 'en'], { sensitivity: 'base' });
+
+  return [...languages].sort((left, right) => {
+    const leftFallback = left.nativeName || left.name || left.code;
+    const rightFallback = right.nativeName || right.name || right.code;
+    const labelComparison = collator.compare(
+      getPreferredFullLanguageLabel(left.code, currentLocale, leftFallback),
+      getPreferredFullLanguageLabel(right.code, currentLocale, rightFallback)
+    );
+
+    if (labelComparison !== 0) {
+      return labelComparison;
+    }
+
+    return collator.compare(left.code, right.code);
+  });
+};
+
+const buildSuggestedLanguages = (
+  languages: Language[],
+  currentLocale: string,
+  preferredLocales: string[]
+): Language[] => {
+  const rankedLocaleCodes = rankSupportedLocalesByPreference(
+    [currentLocale, ...preferredLocales],
+    languages.map((lang) => lang.code)
+  );
+  const languageByCode = new Map(
+    languages.map((lang) => [canonicalizeLocale(lang.code).toLowerCase(), lang] as const)
+  );
+
+  return rankedLocaleCodes.flatMap((localeCode) => {
+    const lang = languageByCode.get(localeCode.toLowerCase());
+    return lang ? [lang] : [];
+  });
+};
+
+type LanguageSection = {
+  key: string;
+  label: string | null;
+  options: Language[];
+};
+
+type IndexedLanguageOption = {
+  lang: Language;
+  index: number;
+};
+
+type IndexedLanguageSection = {
+  key: string;
+  label: string | null;
+  options: IndexedLanguageOption[];
+};
+
+const indexLanguageSections = (sections: LanguageSection[]): IndexedLanguageSection[] => {
+  let nextIndex = 0;
+
+  return sections.map((section) => ({
+    ...section,
+    options: section.options.map((lang) => ({
+      lang,
+      index: nextIndex++,
+    })),
+  }));
+};
 
 type LanguageOptionProps = {
   currentLocale: string;
@@ -217,7 +434,11 @@ const LanguageOption: React.FC<LanguageOptionProps> = ({
   classNames,
   unstyled,
 }) => {
-  const localizedName = getPreferredLanguageLabel(lang.code, currentLocale, lang.name || lang.code);
+  const localizedName = getPreferredFullLanguageLabel(
+    lang.code,
+    currentLocale,
+    lang.name || lang.code
+  );
   const nativeName = getPreferredCompactLanguageLabel(
     lang.code,
     lang.code,
@@ -360,6 +581,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   unstyled,
   direction = 'up',
   currentLocale: controlledLocale,
+  preferredLocales,
   onLocaleChange,
   persistLocaleCookie,
   rootLocale,
@@ -374,15 +596,131 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   const [isTriggerHovered, setIsTriggerHovered] = useState(false);
   const [hoveredOptionCode, setHoveredOptionCode] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
   const [uncontrolledLocale, setUncontrolledLocale] = useState('en-GB');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hardStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const observedTranslationLoadingRef = useRef(false);
 
   const currentLocale = controlledLocale ?? rootLocale ?? uncontrolledLocale;
+  const searchEnabled = languages.length >= ENHANCED_SWITCHER_MIN_LANGUAGE_COUNT;
+  const resolvedPreferredLocales = useMemo(
+    () =>
+      Array.isArray(preferredLocales)
+        ? rankSupportedLocalesByPreference(preferredLocales)
+        : readPreferredLocalesFromBrowser(),
+    [preferredLocales]
+  );
+  const sortedLanguages = useMemo(
+    () => sortLanguagesAlphabetically(languages, currentLocale),
+    [currentLocale, languages]
+  );
+  const suggestedLanguages = useMemo(
+    () =>
+      searchEnabled
+        ? buildSuggestedLanguages(languages, currentLocale, resolvedPreferredLocales)
+        : [],
+    [currentLocale, languages, resolvedPreferredLocales, searchEnabled]
+  );
+  const allLanguages = useMemo(
+    () =>
+      suggestedLanguages.length > 0
+        ? sortedLanguages.filter((lang) => !areSameLocale(lang.code, currentLocale))
+        : sortedLanguages,
+    [currentLocale, sortedLanguages, suggestedLanguages.length]
+  );
+  const languageSections = useMemo<LanguageSection[]>(() => {
+    const trimmedQuery = searchQuery.trim();
+    if (trimmedQuery) {
+      const normalizedQuery = normalizeForSearch(trimmedQuery);
+      const collator = new Intl.Collator([currentLocale, 'en'], { sensitivity: 'base' });
+
+      const matchingLanguages = languages
+        .map((lang) => ({
+          lang,
+          score: getFuzzySearchScore(
+            normalizedQuery,
+            getSearchValuesForLanguage(lang, currentLocale)
+          ),
+        }))
+        .filter((entry) => entry.score >= 0)
+        .sort((left, right) => {
+          if (left.score !== right.score) {
+            return right.score - left.score;
+          }
+
+          const leftFallback = left.lang.nativeName || left.lang.name || left.lang.code;
+          const rightFallback = right.lang.nativeName || right.lang.name || right.lang.code;
+          const labelComparison = collator.compare(
+            getPreferredFullLanguageLabel(left.lang.code, currentLocale, leftFallback),
+            getPreferredFullLanguageLabel(right.lang.code, currentLocale, rightFallback)
+          );
+
+          if (labelComparison !== 0) {
+            return labelComparison;
+          }
+
+          return collator.compare(left.lang.code, right.lang.code);
+        })
+        .map((entry) => entry.lang);
+
+      return [
+        {
+          key: 'search-results',
+          label: null,
+          options: matchingLanguages,
+        },
+      ];
+    }
+
+    if (!searchEnabled) {
+      return [
+        {
+          key: 'all',
+          label: null,
+          options: sortedLanguages,
+        },
+      ];
+    }
+
+    const sections: LanguageSection[] = [];
+    if (suggestedLanguages.length > 0) {
+      sections.push({
+        key: 'suggested',
+        label: internalT(currentLocale, 'suggestedLanguages'),
+        options: suggestedLanguages,
+      });
+    }
+
+    sections.push({
+      key: 'all',
+      label: suggestedLanguages.length > 0 ? internalT(currentLocale, 'allLanguages') : null,
+      options: allLanguages,
+    });
+
+    return sections.filter((section) => section.options.length > 0);
+  }, [
+    allLanguages,
+    currentLocale,
+    languages,
+    searchEnabled,
+    searchQuery,
+    sortedLanguages,
+    suggestedLanguages,
+  ]);
+  const indexedLanguageSections = useMemo(
+    () => indexLanguageSections(languageSections),
+    [languageSections]
+  );
+  const visibleLanguages = useMemo(
+    () =>
+      indexedLanguageSections.flatMap((section) => section.options.map((option) => option.lang)),
+    [indexedLanguageSections]
+  );
 
   const clearChangeTimers = useCallback(() => {
     if (settleTimerRef.current) {
@@ -423,6 +761,15 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   }, [isOpen]);
 
   useEffect(() => {
+    if (isOpen) {
+      return;
+    }
+
+    setSearchQuery('');
+    setHoveredOptionCode(null);
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isChanging) {
       return;
     }
@@ -452,13 +799,41 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
       return;
     }
 
-    const selectedIndex = languages.findIndex((lang) => lang.code === currentLocale);
-    const nextIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    const nextIndex = searchQuery.trim()
+      ? 0
+      : (() => {
+          const selectedIndex = visibleLanguages.findIndex((lang) =>
+            areSameLocale(lang.code, currentLocale)
+          );
+          return selectedIndex >= 0 ? selectedIndex : 0;
+        })();
     setActiveIndex(nextIndex);
     requestAnimationFrame(() => {
-      listboxRef.current?.focus();
+      if (searchEnabled) {
+        searchInputRef.current?.focus();
+      } else {
+        listboxRef.current?.focus();
+      }
     });
-  }, [currentLocale, isOpen, languages]);
+  }, [currentLocale, isOpen, searchEnabled, visibleLanguages]);
+
+  useEffect(() => {
+    setHoveredOptionCode(null);
+    if (searchQuery.trim()) {
+      setActiveIndex(0);
+    }
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!visibleLanguages.length) {
+      setActiveIndex(0);
+      return;
+    }
+
+    setActiveIndex((previousIndex) =>
+      Math.max(0, Math.min(previousIndex, visibleLanguages.length - 1))
+    );
+  }, [visibleLanguages.length]);
 
   const applyLocale = useCallback(
     (newLocale: string) => {
@@ -489,6 +864,8 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
       setIsChanging(true);
       setIsOpen(false);
       setIsTriggerHovered(false);
+      setSearchQuery('');
+      setHoveredOptionCode(null);
 
       applyLocale(newLocale);
       if (persistLocaleCookie) {
@@ -515,29 +892,56 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
 
   const commitByIndex = useCallback(
     (index: number) => {
-      const selectedLanguage = languages[index];
+      const selectedLanguage = visibleLanguages[index];
       if (!selectedLanguage) {
         return;
       }
       handleLanguageChange(selectedLanguage.code);
     },
-    [handleLanguageChange, languages]
+    [handleLanguageChange, visibleLanguages]
   );
 
   const openWithIndex = useCallback(
     (index: number) => {
-      if (!languages.length) {
+      if (!visibleLanguages.length) {
         return;
       }
-      const boundedIndex = Math.max(0, Math.min(index, languages.length - 1));
+      const boundedIndex = Math.max(0, Math.min(index, visibleLanguages.length - 1));
+      setSearchQuery('');
       setActiveIndex(boundedIndex);
       setIsOpen(true);
     },
-    [languages]
+    [visibleLanguages.length]
+  );
+
+  const beginKeyboardSearch = useCallback(
+    (character: string) => {
+      setSearchQuery((previousQuery) => `${previousQuery}${character}`);
+      setActiveIndex(0);
+
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+
+      if (searchEnabled) {
+        searchInputRef.current?.focus();
+        requestAnimationFrame(() => {
+          searchInputRef.current?.focus();
+        });
+      }
+    },
+    [isOpen, searchEnabled]
   );
 
   const handleButtonKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (isChanging) {
+      return;
+    }
+
+    if (isPrintableSearchKey(event)) {
+      event.preventDefault();
+      beginKeyboardSearch(event.key);
       return;
     }
 
@@ -546,14 +950,14 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         event.preventDefault();
         openWithIndex(
           Math.max(
-            languages.findIndex((lang) => lang.code === currentLocale),
+            visibleLanguages.findIndex((lang) => areSameLocale(lang.code, currentLocale)),
             0
           )
         );
         break;
       case 'ArrowUp':
         event.preventDefault();
-        openWithIndex(languages.length - 1);
+        openWithIndex(visibleLanguages.length - 1);
         break;
       case 'Enter':
       case ' ':
@@ -563,7 +967,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         } else {
           openWithIndex(
             Math.max(
-              languages.findIndex((lang) => lang.code === currentLocale),
+              visibleLanguages.findIndex((lang) => areSameLocale(lang.code, currentLocale)),
               0
             )
           );
@@ -581,18 +985,28 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   };
 
   const handleListboxKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!languages.length) {
+    if (!visibleLanguages.length) {
+      if (isPrintableSearchKey(event)) {
+        event.preventDefault();
+        beginKeyboardSearch(event.key);
+      }
+      return;
+    }
+
+    if (isPrintableSearchKey(event)) {
+      event.preventDefault();
+      beginKeyboardSearch(event.key);
       return;
     }
 
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
-        setActiveIndex((prev) => (prev + 1) % languages.length);
+        setActiveIndex((prev) => (prev + 1) % visibleLanguages.length);
         break;
       case 'ArrowUp':
         event.preventDefault();
-        setActiveIndex((prev) => (prev - 1 + languages.length) % languages.length);
+        setActiveIndex((prev) => (prev - 1 + visibleLanguages.length) % visibleLanguages.length);
         break;
       case 'Home':
         event.preventDefault();
@@ -600,7 +1014,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         break;
       case 'End':
         event.preventDefault();
-        setActiveIndex(languages.length - 1);
+        setActiveIndex(visibleLanguages.length - 1);
         break;
       case 'Enter':
       case ' ':
@@ -620,25 +1034,64 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
     }
   };
 
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    switch (event.key) {
+      case 'ArrowDown':
+        if (!visibleLanguages.length) {
+          return;
+        }
+        event.preventDefault();
+        listboxRef.current?.focus();
+        break;
+      case 'ArrowUp':
+        if (!visibleLanguages.length) {
+          return;
+        }
+        event.preventDefault();
+        setActiveIndex(visibleLanguages.length - 1);
+        listboxRef.current?.focus();
+        break;
+      case 'Enter':
+        if (!visibleLanguages.length) {
+          return;
+        }
+        event.preventDefault();
+        commitByIndex(0);
+        break;
+      case 'Escape':
+        event.preventDefault();
+        setIsOpen(false);
+        setSearchQuery('');
+        setHoveredOptionCode(null);
+        buttonRef.current?.focus();
+        break;
+      default:
+        break;
+    }
+  };
+
   if (languages.length === 0) {
     return null;
   }
 
-  const currentLanguage = languages.find((lang) => lang.code === currentLocale) || {
+  const currentLanguage = languages.find((lang) => areSameLocale(lang.code, currentLocale)) || {
     code: currentLocale,
     name: currentLocale,
     nativeName: currentLocale,
     flag: '🌐',
   };
-  const currentLocaleName = getPreferredLanguageLabel(
+  const currentLocaleName = getPreferredCompactLanguageLabel(
     currentLanguage.code,
     currentLanguage.code,
     currentLanguage.nativeName || currentLanguage.name
   );
   const changingLanguageLabel = internalT(currentLocale, 'changingLanguage');
+  const searchLabel = internalT(currentLocale, 'searchAvailableLanguages');
+  const searchPlaceholder = internalT(currentLocale, 'searchLanguagesPlaceholder');
+  const noMatchingLanguagesLabel = internalT(currentLocale, 'noMatchingLanguages');
   const activeOptionId =
-    activeIndex >= 0 && activeIndex < languages.length
-      ? optionIdFor(listboxId, languages[activeIndex].code)
+    activeIndex >= 0 && activeIndex < visibleLanguages.length
+      ? optionIdFor(listboxId, visibleLanguages[activeIndex].code)
       : undefined;
   const menuStyle =
     direction === 'down'
@@ -732,6 +1185,32 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         {isOpen && !isChanging && (
           <div className={classNames?.menu} style={menuStyle}>
             <div className={classNames?.menuCard} style={mergeStyle('menuCard', styles, unstyled)}>
+              {searchEnabled && (
+                <div
+                  className={classNames?.searchWrap}
+                  style={mergeStyle('searchWrap', styles, unstyled)}
+                >
+                  <input
+                    ref={searchInputRef}
+                    type="search"
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    className={classNames?.searchInput}
+                    style={mergeStyle('searchInput', styles, unstyled)}
+                    role="combobox"
+                    aria-label={searchLabel}
+                    aria-controls={listboxId}
+                    aria-expanded={isOpen}
+                    aria-activedescendant={activeOptionId}
+                    aria-autocomplete="list"
+                    autoComplete="off"
+                    placeholder={searchPlaceholder}
+                    spellCheck={false}
+                  />
+                </div>
+              )}
               <div
                 ref={listboxRef}
                 id={listboxId}
@@ -743,33 +1222,59 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
                 tabIndex={-1}
                 onKeyDown={handleListboxKeyDown}
               >
-                {languages.map((lang, index) => {
-                  const isSelected = lang.code === currentLocale;
-                  const isHovered = hoveredOptionCode === lang.code;
-                  const isActive = index === activeIndex;
+                {indexedLanguageSections.map((section) => (
+                  <div
+                    key={section.key}
+                    role={section.label ? 'group' : undefined}
+                    aria-label={section.label || undefined}
+                    className={classNames?.section}
+                    style={mergeStyle('section', styles, unstyled)}
+                  >
+                    {section.label ? (
+                      <div
+                        className={classNames?.sectionHeader}
+                        style={mergeStyle('sectionHeader', styles, unstyled)}
+                      >
+                        {section.label}
+                      </div>
+                    ) : null}
+                    {section.options.map(({ lang, index }) => {
+                      const isSelected = lang.code === currentLocale;
+                      const isHovered = hoveredOptionCode === lang.code;
+                      const isActive = index === activeIndex;
 
-                  return (
-                    <LanguageOption
-                      key={lang.code}
-                      currentLocale={currentLocale}
-                      index={index}
-                      isActive={isActive}
-                      isHovered={isHovered}
-                      isSelected={isSelected}
-                      lang={lang}
-                      onHover={(locale, nextIndex) => {
-                        setHoveredOptionCode(locale);
-                        setActiveIndex(nextIndex);
-                      }}
-                      onLeave={() => setHoveredOptionCode(null)}
-                      onSelect={handleLanguageChange}
-                      optionId={optionIdFor(listboxId, lang.code)}
-                      styles={styles}
-                      classNames={classNames}
-                      unstyled={unstyled}
-                    />
-                  );
-                })}
+                      return (
+                        <LanguageOption
+                          key={lang.code}
+                          currentLocale={currentLocale}
+                          index={index}
+                          isActive={isActive}
+                          isHovered={isHovered}
+                          isSelected={isSelected}
+                          lang={lang}
+                          onHover={(locale, nextIndex) => {
+                            setHoveredOptionCode(locale);
+                            setActiveIndex(nextIndex);
+                          }}
+                          onLeave={() => setHoveredOptionCode(null)}
+                          onSelect={handleLanguageChange}
+                          optionId={optionIdFor(listboxId, lang.code)}
+                          styles={styles}
+                          classNames={classNames}
+                          unstyled={unstyled}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+                {visibleLanguages.length === 0 && (
+                  <div
+                    className={classNames?.emptyState}
+                    style={mergeStyle('emptyState', styles, unstyled)}
+                  >
+                    {noMatchingLanguagesLabel}
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -104,12 +104,53 @@ const AppWithTailwindStyleApi = () => {
   );
 };
 
+const AppWithSuggestedLanguageSwitcher = ({
+  acceptedLocales = ['en-GB', 'en-US', 'fr-FR', 'fr-CA', 'de-DE', 'es-ES'],
+  preferredLocales,
+  initialLocale = 'en-GB',
+}: {
+  acceptedLocales?: string[];
+  preferredLocales?: string[];
+  initialLocale?: string;
+}) => {
+  const [locale, setLocale] = useState(initialLocale);
+
+  return (
+    <Ways
+      apiKey="test-api-key"
+      locale={locale}
+      baseLocale="en-GB"
+      acceptedLocales={acceptedLocales}
+    >
+      <Ways context="key-1">
+        <LanguageSwitcher
+          currentLocale={locale}
+          onLocaleChange={setLocale}
+          preferredLocales={preferredLocales}
+        />
+      </Ways>
+    </Ways>
+  );
+};
+
 const getTriggerButton = (): HTMLButtonElement => {
   const button = document.querySelector('button[aria-haspopup="listbox"]');
   if (!button) {
     throw new Error('LanguageSwitcher trigger button not found');
   }
   return button as HTMLButtonElement;
+};
+
+const getSectionOptionTexts = (sectionLabel: string): string[] => {
+  const sectionHeader = screen.getByText(sectionLabel);
+  const section = sectionHeader.parentElement;
+  if (!section) {
+    throw new Error(`Section not found for label: ${sectionLabel}`);
+  }
+
+  return Array.from(section.querySelectorAll('[role="option"]')).map(
+    (option) => option.textContent || ''
+  );
 };
 
 describe('LanguageSwitcher', () => {
@@ -315,5 +356,135 @@ describe('LanguageSwitcher', () => {
 
     expect(menu?.className).toContain('tw-menu');
     expect(trigger.querySelector('.tw-label')).not.toBeNull();
+  });
+
+  it('groups suggested locales from preferred locales and alphabetizes the remaining locales', async () => {
+    render(<AppWithSuggestedLanguageSwitcher preferredLocales={['en', 'fr-FR']} />);
+
+    fireEvent.click(getTriggerButton());
+
+    expect(await screen.findByText(internalT('en-GB', 'suggestedLanguages'))).toBeInTheDocument();
+    expect(screen.getByText(internalT('en-GB', 'allLanguages'))).toBeInTheDocument();
+
+    const suggestedOptionTexts = getSectionOptionTexts(internalT('en-GB', 'suggestedLanguages'));
+    const allOptionTexts = getSectionOptionTexts(internalT('en-GB', 'allLanguages'));
+
+    expect(suggestedOptionTexts).toHaveLength(4);
+    expect(suggestedOptionTexts[0]).toContain('British English');
+    expect(suggestedOptionTexts[1]).toContain('American English');
+    expect(suggestedOptionTexts[2]).toContain('French (France)');
+    expect(suggestedOptionTexts[3]).toContain('Canadian French');
+
+    expect(allOptionTexts).toHaveLength(5);
+    expect(allOptionTexts[0]).toContain('American English');
+    expect(allOptionTexts[1]).toContain('Canadian French');
+    expect(allOptionTexts[2]).toContain('European Spanish');
+    expect(allOptionTexts[3]).toContain('French (France)');
+    expect(allOptionTexts[4]).toContain('German');
+  });
+
+  it('prioritizes the active locale ahead of browser preference suggestions', async () => {
+    render(<AppWithSuggestedLanguageSwitcher initialLocale="fr-FR" preferredLocales={['en-GB']} />);
+
+    fireEvent.click(getTriggerButton());
+
+    const suggestedOptionTexts = getSectionOptionTexts(internalT('fr-FR', 'suggestedLanguages'));
+
+    expect(suggestedOptionTexts[0]).toContain('français (France)');
+    expect(suggestedOptionTexts[1]).toContain('français canadien');
+    expect(suggestedOptionTexts[2]).toContain('anglais britannique');
+    expect(suggestedOptionTexts[3]).toContain('anglais américain');
+  });
+
+  it('filters the locale list with fuzzy search when enough locales are available', async () => {
+    render(<AppWithSuggestedLanguageSwitcher preferredLocales={['en']} />);
+
+    fireEvent.click(getTriggerButton());
+
+    const searchInput = await screen.findByLabelText(
+      internalT('en-GB', 'searchAvailableLanguages')
+    );
+    fireEvent.change(searchInput, { target: { value: 'canada' } });
+
+    const optionTexts = screen.getAllByRole('option').map((option) => option.textContent || '');
+
+    expect(screen.queryByText(internalT('en-GB', 'suggestedLanguages'))).not.toBeInTheDocument();
+    expect(optionTexts).toHaveLength(1);
+    expect(optionTexts[0]).toContain('Canadian French');
+  });
+
+  it('routes typing from the trigger into the language search and lets Enter pick the top result', async () => {
+    render(<AppWithSuggestedLanguageSwitcher preferredLocales={['en']} />);
+
+    const trigger = getTriggerButton();
+    trigger.focus();
+
+    fireEvent.keyDown(trigger, { key: 'c' });
+
+    const searchInput = await screen.findByLabelText(
+      internalT('en-GB', 'searchAvailableLanguages')
+    );
+    expect(searchInput).toHaveFocus();
+    expect(searchInput).toHaveValue('c');
+
+    fireEvent.change(searchInput, { target: { value: 'canada' } });
+    fireEvent.keyDown(searchInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(getTriggerButton()).toHaveTextContent(/français/i);
+    });
+  });
+
+  it('routes typing from the listbox into the search input', async () => {
+    render(<AppWithSuggestedLanguageSwitcher preferredLocales={['en']} />);
+
+    fireEvent.click(getTriggerButton());
+
+    const listbox = await screen.findByRole('listbox');
+    listbox.focus();
+    fireEvent.keyDown(listbox, { key: 'c' });
+
+    const searchInput = await screen.findByLabelText(
+      internalT('en-GB', 'searchAvailableLanguages')
+    );
+    expect(searchInput).toHaveFocus();
+    expect(searchInput).toHaveValue('c');
+  });
+
+  it('drops search and suggested grouping when four or fewer locales are available', async () => {
+    render(
+      <AppWithSuggestedLanguageSwitcher
+        acceptedLocales={['en-GB', 'en-US', 'fr-FR', 'fr-CA']}
+        preferredLocales={['en', 'fr-FR']}
+      />
+    );
+
+    fireEvent.click(getTriggerButton());
+
+    expect(
+      screen.queryByLabelText(internalT('en-GB', 'searchAvailableLanguages'))
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(internalT('en-GB', 'suggestedLanguages'))).not.toBeInTheDocument();
+    expect(screen.queryByText(internalT('en-GB', 'allLanguages'))).not.toBeInTheDocument();
+    expect(screen.getAllByRole('option')).toHaveLength(4);
+  });
+
+  it('translates the selector chrome using internal locale strings', async () => {
+    render(
+      <AppWithSuggestedLanguageSwitcher
+        initialLocale="fr-FR"
+        preferredLocales={['fr-FR']}
+        acceptedLocales={['fr-FR', 'fr-CA', 'en-GB', 'en-US', 'de-DE', 'es-ES']}
+      />
+    );
+
+    fireEvent.click(getTriggerButton());
+
+    expect(await screen.findByText(internalT('fr-FR', 'suggestedLanguages'))).toBeInTheDocument();
+    expect(screen.getByText(internalT('fr-FR', 'allLanguages'))).toBeInTheDocument();
+    expect(screen.getByLabelText(internalT('fr-FR', 'searchAvailableLanguages'))).toHaveAttribute(
+      'placeholder',
+      internalT('fr-FR', 'searchLanguagesPlaceholder')
+    );
   });
 });
