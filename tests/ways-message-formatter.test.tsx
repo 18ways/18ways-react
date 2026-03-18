@@ -265,6 +265,34 @@ describe('WaysRoot - Message Formatter', () => {
     });
   });
 
+  it('supports inline alias syntax for select formats with commas inside branch text', async () => {
+    const source =
+      '{isSignedIn, select, true{Welcome back, {name}} false{Sign in to continue} other{Sign in to continue}}';
+    mockWaysParserTranslation(source, source);
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-US" baseLocale="en-US">
+        <Ways context="test-key">
+          <T vars={{ name: 'Ada' }}>
+            {{
+              isSignedIn: true,
+              format:
+                'select, true{Welcome back, {name}} false{Sign in to continue} other{Sign in to continue}',
+            }}
+          </T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Welcome back, Ada')).toBeInTheDocument();
+    });
+  });
+
   it('skips translation fetches for runtime-only waysParser messages', async () => {
     const source = '{createdAt, date, dateStyle:short}';
     const vars = { createdAt: new Date(Date.UTC(2024, 0, 15, 12)) };

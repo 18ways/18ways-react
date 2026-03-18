@@ -1511,6 +1511,38 @@ type InlineAliasDescriptor = {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const splitInlineAliasFormat = (value: string): string[] => {
+  const segments: string[] = [];
+  let current = '';
+  let depth = 0;
+
+  for (const char of value) {
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+    }
+
+    if (char === ',' && depth === 0) {
+      const trimmed = current.trim();
+      if (trimmed) {
+        segments.push(trimmed);
+      }
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  const trimmed = current.trim();
+  if (trimmed) {
+    segments.push(trimmed);
+  }
+
+  return segments;
+};
+
 const extractInlineAliasDescriptor = (value: unknown): InlineAliasDescriptor | null => {
   if (!isPlainObject(value) || React.isValidElement(value)) {
     return null;
@@ -1549,10 +1581,7 @@ const buildInlineAliasPlaceholder = ({
     return `{${variableName}}`;
   }
 
-  const segments = format
-    .split(',')
-    .map((segment) => segment.trim())
-    .filter(Boolean);
+  const segments = splitInlineAliasFormat(format);
   if (segments.length === 0) {
     return `{${variableName}}`;
   }
