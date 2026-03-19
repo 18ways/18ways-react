@@ -21,18 +21,18 @@ import { useState } from 'react';
 import { LanguageSwitcher, Ways, T } from '@18ways/react';
 
 export function App() {
-  const [locale, setLocale] = useState('fr-FR');
+  const [locale, setLocale] = useState('en-GB');
 
   return (
     <Ways apiKey="pk_dummy_demo_token" locale={locale} baseLocale="en-GB" context="app">
       <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
-      <Ways context="checkout.button">
-        <T>Pay now</T>
-      </Ways>
+      <T>Hello world</T>
     </Ways>
   );
 }
 ```
+
+A runnable minimal site lives in `examples/basic/`.
 
 ## Inline placeholder alias
 
