@@ -9,6 +9,7 @@ import { registerRuntimeResetFn } from './testing';
 
 const DOM_SNAPSHOT_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 const DOM_SETTLE_DELAY_MS = 120;
+const DOM_SETTLE_MAX_WAIT_MS = 1000;
 const POISON_CHAR = '\u2063';
 
 interface DomSnapshotRuntimeOptions {
@@ -291,6 +292,8 @@ class DomSnapshotRuntime {
   private captureTimer: number | null = null;
   private captureInFlight = false;
   private ignoreMutations = false;
+  private firstCaptureSignalAt: number | null = null;
+  private lastCaptureSignalAt: number | null = null;
 
   constructor(options: DomSnapshotRuntimeOptions) {
     this.options = options;
@@ -328,6 +331,8 @@ class DomSnapshotRuntime {
     }
 
     this.ignoreMutations = false;
+    this.firstCaptureSignalAt = null;
+    this.lastCaptureSignalAt = null;
     clearTemporaryOverrides();
   };
 
@@ -380,14 +385,39 @@ class DomSnapshotRuntime {
   };
 
   private scheduleCapture = (): void => {
+    const now = Date.now();
+    if (this.firstCaptureSignalAt === null) {
+      this.firstCaptureSignalAt = now;
+    }
+    this.lastCaptureSignalAt = now;
+
     if (this.captureTimer !== null) {
-      clearTimeout(this.captureTimer);
+      return;
     }
 
-    this.captureTimer = window.setTimeout(() => {
-      this.captureTimer = null;
+    this.captureTimer = window.setTimeout(this.onCaptureTimer, DOM_SETTLE_DELAY_MS);
+  };
+
+  private onCaptureTimer = (): void => {
+    this.captureTimer = null;
+
+    const now = Date.now();
+    const firstSignalAt = this.firstCaptureSignalAt ?? now;
+    const lastSignalAt = this.lastCaptureSignalAt ?? firstSignalAt;
+    const quietForMs = now - lastSignalAt;
+    const waitingForMs = now - firstSignalAt;
+
+    if (quietForMs >= DOM_SETTLE_DELAY_MS || waitingForMs >= DOM_SETTLE_MAX_WAIT_MS) {
+      this.firstCaptureSignalAt = null;
+      this.lastCaptureSignalAt = null;
       void this.captureAndUpload();
-    }, DOM_SETTLE_DELAY_MS);
+      return;
+    }
+
+    const remainingSettleMs = DOM_SETTLE_DELAY_MS - quietForMs;
+    const remainingMaxWaitMs = DOM_SETTLE_MAX_WAIT_MS - waitingForMs;
+    const nextDelayMs = Math.max(0, Math.min(remainingSettleMs, remainingMaxWaitMs));
+    this.captureTimer = window.setTimeout(this.onCaptureTimer, nextDelayMs);
   };
 
   private assignPoisonLengths = (
@@ -466,6 +496,7 @@ class DomSnapshotRuntime {
       {
         identityKey: string;
         translatedTexts: string[];
+        visibleTexts: string[];
       }
     >();
 
@@ -491,6 +522,7 @@ class DomSnapshotRuntime {
       renderedRecordsByTranslationId.set(entry.translationId, {
         identityKey,
         translatedTexts: [...record.translatedTexts],
+        visibleTexts,
       });
 
       visibleTexts.forEach((visibleText) => {
@@ -657,6 +689,9 @@ class DomSnapshotRuntime {
       console.error('[18ways] Failed to capture/upload DOM snapshot:', error);
     } finally {
       this.captureInFlight = false;
+      if (this.translationIdsToCapture.size && this.captureTimer === null) {
+        this.scheduleCapture();
+      }
     }
   };
 }
