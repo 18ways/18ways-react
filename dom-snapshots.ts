@@ -291,6 +291,7 @@ class DomSnapshotRuntime {
   private mutationObserver: MutationObserver | null = null;
   private captureTimer: number | null = null;
   private captureInFlight = false;
+  private recaptureAfterCurrentUpload = false;
   private ignoreMutations = false;
   private firstCaptureSignalAt: number | null = null;
   private lastCaptureSignalAt: number | null = null;
@@ -331,6 +332,7 @@ class DomSnapshotRuntime {
     }
 
     this.ignoreMutations = false;
+    this.recaptureAfterCurrentUpload = false;
     this.firstCaptureSignalAt = null;
     this.lastCaptureSignalAt = null;
     clearTemporaryOverrides();
@@ -385,6 +387,11 @@ class DomSnapshotRuntime {
   };
 
   private scheduleCapture = (): void => {
+    if (this.captureInFlight) {
+      this.recaptureAfterCurrentUpload = true;
+      return;
+    }
+
     const now = Date.now();
     if (this.firstCaptureSignalAt === null) {
       this.firstCaptureSignalAt = now;
@@ -683,13 +690,17 @@ class DomSnapshotRuntime {
       const now = Date.now();
       Object.keys(translationSelectorMap).forEach((translationId) => {
         this.lastCapturedByTranslationId.set(translationId, now);
-        this.translationIdsToCapture.delete(translationId);
+        if (!this.recaptureAfterCurrentUpload) {
+          this.translationIdsToCapture.delete(translationId);
+        }
       });
     } catch (error) {
       console.error('[18ways] Failed to capture/upload DOM snapshot:', error);
     } finally {
       this.captureInFlight = false;
-      if (this.translationIdsToCapture.size && this.captureTimer === null) {
+      const shouldRecapture = this.recaptureAfterCurrentUpload;
+      this.recaptureAfterCurrentUpload = false;
+      if ((shouldRecapture || this.translationIdsToCapture.size) && this.captureTimer === null) {
         this.scheduleCapture();
       }
     }
