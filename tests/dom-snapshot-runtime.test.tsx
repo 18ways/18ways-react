@@ -92,6 +92,22 @@ const translationResponse = () =>
     }
   );
 
+const advanceQueuedTimers = async (ms: number) => {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+};
+
+const clearQueueWithFakeTimers = async () => {
+  await act(async () => {
+    const clearPromise = clearQueueForTests();
+    for (let pass = 0; pass < 6; pass += 1) {
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    await clearPromise;
+  });
+};
+
 describe('DOM snapshot runtime', () => {
   beforeEach(() => {
     resetTestRuntimeState();
@@ -226,6 +242,7 @@ describe('DOM snapshot runtime', () => {
   it('backs off and gives up after repeated retryable upload failures', async () => {
     const uploadStatuses: number[] = [];
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.useFakeTimers();
 
     global.fetch = vi.fn(async (input: string | URL | Request) => {
       const url =
@@ -246,27 +263,15 @@ describe('DOM snapshot runtime', () => {
     try {
       renderSnapshotRuntime();
 
-      await act(async () => {
-        await clearQueueForTests();
-      });
+      await clearQueueWithFakeTimers();
+      await advanceQueuedTimers(20000);
 
-      await waitFor(
-        () => {
-          expect(screen.getByTestId('greeting')).toHaveTextContent('Hola Alice');
-          expect(uploadStatuses).toHaveLength(5);
-        },
-        { timeout: 17000 }
-      );
-
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-      });
-
+      expect(screen.getByTestId('greeting')).toHaveTextContent('Hola Alice');
       expect(uploadStatuses).toHaveLength(5);
     } finally {
       consoleError.mockRestore();
     }
-  }, 20000);
+  });
 
   it('does not start DOM snapshot uploads for the demo token', async () => {
     const uploadStatuses: number[] = [];

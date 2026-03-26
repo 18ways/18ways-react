@@ -352,9 +352,9 @@ const hasCachedSeedForContext = (contextKey: string, targetLocale: string): bool
   const localeTranslations = inMemoryTranslations[targetLocale];
   return Boolean(
     localeTranslations &&
-    typeof localeTranslations === 'object' &&
-    !Array.isArray(localeTranslations) &&
-    contextKey in localeTranslations
+      typeof localeTranslations === 'object' &&
+      !Array.isArray(localeTranslations) &&
+      contextKey in localeTranslations
   );
 };
 
@@ -1875,8 +1875,8 @@ export const useT = ({
 
           const hasContextSpecificPendingWork = Boolean(
             pendingSeedPromise ||
-            store.hasPendingRequestsForKey(effectiveContextKey) ||
-            store.hasInFlightRequestsForKey(effectiveContextKey)
+              store.hasPendingRequestsForKey(effectiveContextKey) ||
+              store.hasInFlightRequestsForKey(effectiveContextKey)
           );
           if (hasContextSpecificPendingWork) {
             return true;
@@ -2040,7 +2040,7 @@ export const useTranslationLoading = (): boolean => {
 
   const hasPendingSeed = Boolean(
     context.targetLocale &&
-    context.getPendingSeedPromise?.(context.contextKey, context.targetLocale)
+      context.getPendingSeedPromise?.(context.contextKey, context.targetLocale)
   );
   const hasPending = context.store.hasPendingRequestsForKey(context.contextKey);
   const hasInFlight = context.store.hasInFlightRequestsForKey(context.contextKey);

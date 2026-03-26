@@ -6,6 +6,8 @@ import { fetchConfig, fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { internalT } from '@18ways/core/internal-i18n';
 import { clearQueueForTests } from '../testing';
 
+const CHANGE_SETTLE_TIMEOUT_MS = 1000;
+
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
@@ -28,6 +30,30 @@ const createDeferred = <T,>() => {
     resolve = res;
   });
   return { promise, resolve };
+};
+
+const clearQueueWithFakeTimers = async () => {
+  await act(async () => {
+    const clearPromise = clearQueueForTests();
+    for (let pass = 0; pass < 6; pass += 1) {
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    await clearPromise;
+  });
+};
+
+const advanceChangeTimers = async (ms = CHANGE_SETTLE_TIMEOUT_MS + 1) => {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+};
+
+const flushMicrotasks = async (passes = 4) => {
+  await act(async () => {
+    for (let pass = 0; pass < passes; pass += 1) {
+      await Promise.resolve();
+    }
+  });
 };
 
 const AppWithLanguageSwitcher = ({
@@ -180,41 +206,44 @@ describe('LanguageSwitcher', () => {
   it('updates locale, persists cookie, shows spinner immediately, and re-enables after fetch', async () => {
     const deferred = createDeferred<any>();
     vi.mocked(fetchTranslations).mockReturnValue(deferred.promise);
+    vi.useFakeTimers();
 
-    render(<AppWithLanguageSwitcher />);
-    expect(fetchConfig).not.toHaveBeenCalled();
+    try {
+      render(<AppWithLanguageSwitcher />);
+      expect(fetchConfig).not.toHaveBeenCalled();
 
-    fireEvent.click(getTriggerButton());
-    fireEvent.click(await screen.findByRole('option', { name: /Spanish/i }));
+      fireEvent.click(getTriggerButton());
+      fireEvent.click(screen.getByRole('option', { name: /Spanish/i }));
 
-    expect(getTriggerButton()).toBeDisabled();
-    expect(document.cookie).toContain('18ways_locale=es-ES');
-    expect(screen.getAllByText(internalT('es-ES', 'changingLanguage')).length).toBeGreaterThan(0);
+      expect(getTriggerButton()).toBeDisabled();
+      expect(document.cookie).toContain('18ways_locale=es-ES');
+      expect(screen.getAllByText(internalT('es-ES', 'changingLanguage')).length).toBeGreaterThan(0);
 
-    await waitFor(() => {
+      await flushMicrotasks();
       expect(fetchTranslations).toHaveBeenCalledTimes(1);
-    });
 
-    await act(async () => {
-      deferred.resolve({
-        data: [
-          {
-            locale: 'es-ES',
-            key: 'key-1',
-            textHash: '["Hello","key-1"]',
-            translation: 'Hola',
-          },
-        ],
-        errors: [],
+      await act(async () => {
+        deferred.resolve({
+          data: [
+            {
+              locale: 'es-ES',
+              key: 'key-1',
+              textHash: '["Hello","key-1"]',
+              translation: 'Hola',
+            },
+          ],
+          errors: [],
+        });
+        await deferred.promise;
       });
-      await deferred.promise;
-      await clearQueueForTests();
-    });
+      await clearQueueWithFakeTimers();
+      await advanceChangeTimers();
 
-    await waitFor(() => {
       expect(screen.getByTestId('translated-text')).toHaveTextContent('Hola');
       expect(getTriggerButton()).not.toBeDisabled();
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders locale flags from supported locales data', async () => {
@@ -290,43 +319,44 @@ describe('LanguageSwitcher', () => {
   it('keeps spinner active while translations are loading in other contexts', async () => {
     const deferred = createDeferred<any>();
     vi.mocked(fetchTranslations).mockReturnValue(deferred.promise);
+    vi.useFakeTimers();
 
-    render(<AppWithCrossContextLanguageSwitcher />);
+    try {
+      render(<AppWithCrossContextLanguageSwitcher />);
 
-    fireEvent.click(getTriggerButton());
-    fireEvent.click(await screen.findByRole('option', { name: /Spanish/i }));
+      fireEvent.click(getTriggerButton());
+      fireEvent.click(screen.getByRole('option', { name: /Spanish/i }));
 
-    expect(getTriggerButton()).toBeDisabled();
+      expect(getTriggerButton()).toBeDisabled();
 
-    await waitFor(() => {
+      await flushMicrotasks();
       expect(fetchTranslations).toHaveBeenCalledTimes(1);
-    });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-    });
-    expect(getTriggerButton()).toBeDisabled();
+      await advanceChangeTimers(400);
+      expect(getTriggerButton()).toBeDisabled();
 
-    await act(async () => {
-      deferred.resolve({
-        data: [
-          {
-            locale: 'es-ES',
-            key: 'content',
-            textHash: '["Hello","content"]',
-            translation: 'Hola',
-          },
-        ],
-        errors: [],
+      await act(async () => {
+        deferred.resolve({
+          data: [
+            {
+              locale: 'es-ES',
+              key: 'content',
+              textHash: '["Hello","content"]',
+              translation: 'Hola',
+            },
+          ],
+          errors: [],
+        });
+        await deferred.promise;
       });
-      await deferred.promise;
-      await clearQueueForTests();
-    });
+      await clearQueueWithFakeTimers();
+      await advanceChangeTimers();
 
-    await waitFor(() => {
       expect(screen.getByTestId('translated-text')).toHaveTextContent('Hola');
       expect(getTriggerButton()).not.toBeDisabled();
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('supports opening the menu downward', async () => {
@@ -418,25 +448,28 @@ describe('LanguageSwitcher', () => {
   });
 
   it('routes typing from the trigger into the language search and lets Enter pick the top result', async () => {
-    render(<AppWithSuggestedLanguageSwitcher preferredLocales={['en']} />);
+    vi.useFakeTimers();
+    try {
+      render(<AppWithSuggestedLanguageSwitcher preferredLocales={['en']} />);
 
-    const trigger = getTriggerButton();
-    trigger.focus();
+      const trigger = getTriggerButton();
+      trigger.focus();
 
-    fireEvent.keyDown(trigger, { key: 'c' });
+      fireEvent.keyDown(trigger, { key: 'c' });
 
-    const searchInput = await screen.findByLabelText(
-      internalT('en-GB', 'searchAvailableLanguages')
-    );
-    expect(searchInput).toHaveFocus();
-    expect(searchInput).toHaveValue('c');
+      const searchInput = screen.getByLabelText(internalT('en-GB', 'searchAvailableLanguages'));
+      expect(searchInput).toHaveFocus();
+      expect(searchInput).toHaveValue('c');
 
-    fireEvent.change(searchInput, { target: { value: 'canada' } });
-    fireEvent.keyDown(searchInput, { key: 'Enter' });
+      fireEvent.change(searchInput, { target: { value: 'canada' } });
+      fireEvent.keyDown(searchInput, { key: 'Enter' });
+      await flushMicrotasks();
+      await advanceChangeTimers();
 
-    await waitFor(() => {
       expect(getTriggerButton()).toHaveTextContent(/français/i);
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('routes typing from the listbox into the search input', async () => {

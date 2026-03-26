@@ -161,41 +161,59 @@ describe('WaysRoot - Seed gating', () => {
 
   it('does not timeout server blocking while seed is pending', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.mocked(fetchSeed).mockImplementation(
-      async () =>
-        new Promise((resolve) => {
-          setTimeout(() => {
-            resolve({
-              data: {
-                'key-1': {
-                  '["Hello","key-1"]': 'Hola',
-                },
-              },
-            });
-          }, 1100);
-        })
-    );
+    const seedDeferred = createDeferred<{ data: Record<string, Record<string, string>> }>();
+    vi.mocked(fetchSeed).mockReturnValue(seedDeferred.promise);
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [],
       errors: [],
     });
 
-    const html = await renderServer(
-      <React.Suspense fallback={null}>
-        <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="key-1">
-          <T>Hello</T>
-        </Ways>
-      </React.Suspense>
-    );
+    try {
+      const htmlPromise = renderServer(
+        <React.Suspense fallback={null}>
+          <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" context="key-1">
+            <T>Hello</T>
+          </Ways>
+        </React.Suspense>
+      );
 
-    const didTimeout = warnSpy.mock.calls.some((call) => {
-      const message = call[0];
-      return typeof message === 'string' && message.includes('Initial render blocker timed out');
-    });
+      let didResolveHtml = false;
+      void htmlPromise.then(() => {
+        didResolveHtml = true;
+      });
 
-    expect(html).toContain('Hola');
-    expect(didTimeout).toBe(false);
-    warnSpy.mockRestore();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(didResolveHtml).toBe(false);
+      expect(
+        warnSpy.mock.calls.some((call) => {
+          const message = call[0];
+          return (
+            typeof message === 'string' && message.includes('Initial render blocker timed out')
+          );
+        })
+      ).toBe(false);
+
+      seedDeferred.resolve({
+        data: {
+          'key-1': {
+            '["Hello","key-1"]': 'Hola',
+          },
+        },
+      });
+
+      const html = await htmlPromise;
+      const didTimeout = warnSpy.mock.calls.some((call) => {
+        const message = call[0];
+        return typeof message === 'string' && message.includes('Initial render blocker timed out');
+      });
+
+      expect(html).toContain('Hola');
+      expect(didTimeout).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('batches seed requests across contexts into a single call per locale', async () => {
