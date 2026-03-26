@@ -1589,7 +1589,7 @@ const extractInlineAliasDescriptor = (value: unknown): InlineAliasDescriptor | n
     return null;
   }
 
-  const trimmedFormat = rawFormat?.trim();
+  const trimmedFormat = typeof rawFormat === 'string' ? rawFormat.trim() : undefined;
   return {
     variableName,
     variableValue,
