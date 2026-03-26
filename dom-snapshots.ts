@@ -1,4 +1,5 @@
 import {
+  isDemoApiKey,
   subscribeRuntimeNetworkEvents,
   type RuntimeNetworkEvent,
   type SnapshotTranslationEntry,
@@ -818,7 +819,11 @@ if (process.env.NODE_ENV === 'test') {
 }
 
 export const startDomSnapshotRuntime = (options: DomSnapshotRuntimeOptions): (() => void) => {
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
+  if (
+    typeof window === 'undefined' ||
+    typeof document === 'undefined' ||
+    isDemoApiKey(options.apiKey)
+  ) {
     return () => {};
   }
 

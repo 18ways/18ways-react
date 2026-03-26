@@ -267,4 +267,50 @@ describe('DOM snapshot runtime', () => {
       consoleError.mockRestore();
     }
   }, 20000);
+
+  it('does not start DOM snapshot uploads for the demo token', async () => {
+    const uploadStatuses: number[] = [];
+
+    global.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.endsWith('/dom-snapshots/upload')) {
+        uploadStatuses.push(200);
+        return new Response(null, { status: 200 });
+      }
+
+      throw new Error(`Unexpected network fetch to ${url}`);
+    }) as typeof fetch;
+
+    render(
+      <Ways
+        apiKey="pk_dummy_demo_token"
+        locale="en-US-x-caesar"
+        baseLocale="en-US"
+        acceptedLocales={['en-US', 'en-US-x-caesar']}
+        _apiUrl="https://example.test/api"
+      >
+        <Ways context="test-key">
+          <span data-testid="demo-greeting">
+            <T>Hello</T>
+          </span>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('demo-greeting')).toHaveTextContent('Uryyb');
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+
+    expect(uploadStatuses).toHaveLength(0);
+  });
 });
