@@ -55,6 +55,43 @@ const DynamicGreeting = () => {
   );
 };
 
+const renderSnapshotRuntime = () =>
+  render(
+    <Ways
+      apiKey="test-api-key"
+      locale="es-ES"
+      baseLocale="en-US"
+      acceptedLocales={['en-US', 'es-ES']}
+      _apiUrl="https://example.test/api"
+    >
+      <Ways context="test-key">
+        <DynamicGreeting />
+      </Ways>
+    </Ways>
+  );
+
+const translationResponse = () =>
+  new Response(
+    JSON.stringify({
+      data: [
+        {
+          locale: 'es-ES',
+          key: 'test-key',
+          textHash: '["Hello {name}","test-key"]',
+          contextFingerprint: CONTEXT_FINGERPRINT,
+          translationId: TRANSLATION_ID,
+          translation: 'Hola {name}',
+        },
+      ],
+      errors: [],
+      snapshotRequestTranslationIds: [TRANSLATION_ID],
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
 describe('DOM snapshot runtime', () => {
   beforeEach(() => {
     resetTestRuntimeState();
@@ -66,6 +103,7 @@ describe('DOM snapshot runtime', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    vi.useRealTimers();
   });
 
   it('recaptures when the DOM changes during an in-flight upload', async () => {
@@ -81,26 +119,7 @@ describe('DOM snapshot runtime', () => {
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url.endsWith('/translate')) {
-        return new Response(
-          JSON.stringify({
-            data: [
-              {
-                locale: 'es-ES',
-                key: 'test-key',
-                textHash: '["Hello {name}","test-key"]',
-                contextFingerprint: CONTEXT_FINGERPRINT,
-                translationId: TRANSLATION_ID,
-                translation: 'Hola {name}',
-              },
-            ],
-            errors: [],
-            snapshotRequestTranslationIds: [TRANSLATION_ID],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
+        return translationResponse();
       }
 
       if (url.endsWith('/dom-snapshots/upload')) {
@@ -119,19 +138,7 @@ describe('DOM snapshot runtime', () => {
       throw new Error(`Unexpected fetch to ${url}`);
     }) as typeof fetch;
 
-    render(
-      <Ways
-        apiKey="test-api-key"
-        locale="es-ES"
-        baseLocale="en-US"
-        acceptedLocales={['en-US', 'es-ES']}
-        _apiUrl="https://example.test/api"
-      >
-        <Ways context="test-key">
-          <DynamicGreeting />
-        </Ways>
-      </Ways>
-    );
+    renderSnapshotRuntime();
 
     await act(async () => {
       await clearQueueForTests();
@@ -173,4 +180,91 @@ describe('DOM snapshot runtime', () => {
     expect(uploadBodies[0]?.translationSelectorMap[TRANSLATION_ID]?.length).toBeGreaterThan(0);
     expect(uploadBodies[1]?.translationSelectorMap[TRANSLATION_ID]?.length).toBeGreaterThan(0);
   });
+
+  it('stops retrying after a permanent upload failure', async () => {
+    const uploadStatuses: number[] = [];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    global.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.endsWith('/translate')) {
+        return translationResponse();
+      }
+
+      if (url.endsWith('/dom-snapshots/upload')) {
+        uploadStatuses.push(403);
+        return new Response(null, { status: 403 });
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }) as typeof fetch;
+
+    try {
+      renderSnapshotRuntime();
+
+      await act(async () => {
+        await clearQueueForTests();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('greeting')).toHaveTextContent('Hola Alice');
+        expect(uploadStatuses).toHaveLength(1);
+      });
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+
+      expect(uploadStatuses).toHaveLength(1);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('backs off and gives up after repeated retryable upload failures', async () => {
+    const uploadStatuses: number[] = [];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    global.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.endsWith('/translate')) {
+        return translationResponse();
+      }
+
+      if (url.endsWith('/dom-snapshots/upload')) {
+        uploadStatuses.push(503);
+        return new Response(null, { status: 503 });
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }) as typeof fetch;
+
+    try {
+      renderSnapshotRuntime();
+
+      await act(async () => {
+        await clearQueueForTests();
+      });
+
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('greeting')).toHaveTextContent('Hola Alice');
+          expect(uploadStatuses).toHaveLength(5);
+        },
+        { timeout: 17000 }
+      );
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      });
+
+      expect(uploadStatuses).toHaveLength(5);
+    } finally {
+      consoleError.mockRestore();
+    }
+  }, 20000);
 });

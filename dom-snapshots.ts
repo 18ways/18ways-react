@@ -10,6 +10,9 @@ import { registerRuntimeResetFn } from './testing';
 const DOM_SNAPSHOT_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 const DOM_SETTLE_DELAY_MS = 120;
 const DOM_SETTLE_MAX_WAIT_MS = 1000;
+const SNAPSHOT_UPLOAD_RETRY_BASE_MS = 1000;
+const SNAPSHOT_UPLOAD_RETRY_MAX_MS = 30000;
+const SNAPSHOT_UPLOAD_MAX_RETRIES = 4;
 const POISON_CHAR = '\u2063';
 
 interface DomSnapshotRuntimeOptions {
@@ -282,6 +285,33 @@ const countPoisonChars = (value: string): number => {
 
 const stripPoisonChars = (value: string): string => value.replace(new RegExp(POISON_CHAR, 'g'), '');
 
+const isRetryableSnapshotUploadStatus = (status: number): boolean =>
+  status === 408 || status === 429 || status >= 500;
+
+class SnapshotUploadError extends Error {
+  status?: number;
+  retryable: boolean;
+
+  constructor(message: string, options?: { status?: number; retryable?: boolean }) {
+    super(message);
+    this.name = 'SnapshotUploadError';
+    this.status = options?.status;
+    this.retryable = options?.retryable ?? true;
+  }
+}
+
+const toSnapshotUploadError = (error: unknown): SnapshotUploadError => {
+  if (error instanceof SnapshotUploadError) {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return new SnapshotUploadError(error.message);
+  }
+
+  return new SnapshotUploadError('Unknown DOM snapshot upload failure');
+};
+
 class DomSnapshotRuntime {
   private options: DomSnapshotRuntimeOptions;
   private translationEntriesById = new Map<string, RuntimeTranslationEntry>();
@@ -290,11 +320,13 @@ class DomSnapshotRuntime {
   private unsubscribeNetwork: (() => void) | null = null;
   private mutationObserver: MutationObserver | null = null;
   private captureTimer: number | null = null;
+  private retryTimer: number | null = null;
   private captureInFlight = false;
   private recaptureAfterCurrentUpload = false;
   private ignoreMutations = false;
   private firstCaptureSignalAt: number | null = null;
   private lastCaptureSignalAt: number | null = null;
+  private uploadRetryCount = 0;
 
   constructor(options: DomSnapshotRuntimeOptions) {
     this.options = options;
@@ -331,10 +363,16 @@ class DomSnapshotRuntime {
       this.captureTimer = null;
     }
 
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+
     this.ignoreMutations = false;
     this.recaptureAfterCurrentUpload = false;
     this.firstCaptureSignalAt = null;
     this.lastCaptureSignalAt = null;
+    this.uploadRetryCount = 0;
     clearTemporaryOverrides();
   };
 
@@ -392,6 +430,10 @@ class DomSnapshotRuntime {
       return;
     }
 
+    if (this.retryTimer !== null) {
+      return;
+    }
+
     const now = Date.now();
     if (this.firstCaptureSignalAt === null) {
       this.firstCaptureSignalAt = now;
@@ -425,6 +467,34 @@ class DomSnapshotRuntime {
     const remainingMaxWaitMs = DOM_SETTLE_MAX_WAIT_MS - waitingForMs;
     const nextDelayMs = Math.max(0, Math.min(remainingSettleMs, remainingMaxWaitMs));
     this.captureTimer = window.setTimeout(this.onCaptureTimer, nextDelayMs);
+  };
+
+  private scheduleUploadRetry = (): void => {
+    if (this.retryTimer !== null || !this.translationIdsToCapture.size) {
+      return;
+    }
+
+    const delayMs = Math.min(
+      SNAPSHOT_UPLOAD_RETRY_BASE_MS * 2 ** this.uploadRetryCount,
+      SNAPSHOT_UPLOAD_RETRY_MAX_MS
+    );
+    this.uploadRetryCount += 1;
+
+    this.retryTimer = window.setTimeout(() => {
+      this.retryTimer = null;
+      if (!this.translationIdsToCapture.size) {
+        return;
+      }
+      this.scheduleCapture();
+    }, delayMs);
+  };
+
+  private resetUploadRetryState = (): void => {
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.uploadRetryCount = 0;
   };
 
   private assignPoisonLengths = (
@@ -640,9 +710,13 @@ class DomSnapshotRuntime {
     }
 
     this.captureInFlight = true;
+    let shouldScheduleRetry = false;
+    let shouldDropPendingIds = false;
+
     try {
       const translationSelectorMap = await this.buildSelectorMap();
       if (!Object.keys(translationSelectorMap).length) {
+        this.resetUploadRetryState();
         return;
       }
 
@@ -684,9 +758,13 @@ class DomSnapshotRuntime {
 
       const response = await fetch(endpoint, finalRequestInit as RequestInit);
       if (!response.ok) {
-        throw new Error(`Snapshot upload failed (${response.status})`);
+        throw new SnapshotUploadError(`Snapshot upload failed (${response.status})`, {
+          status: response.status,
+          retryable: isRetryableSnapshotUploadStatus(response.status),
+        });
       }
 
+      this.resetUploadRetryState();
       const now = Date.now();
       Object.keys(translationSelectorMap).forEach((translationId) => {
         this.lastCapturedByTranslationId.set(translationId, now);
@@ -695,12 +773,31 @@ class DomSnapshotRuntime {
         }
       });
     } catch (error) {
-      console.error('[18ways] Failed to capture/upload DOM snapshot:', error);
+      const uploadError = toSnapshotUploadError(error);
+      console.error('[18ways] Failed to capture/upload DOM snapshot:', uploadError);
+
+      if (!uploadError.retryable) {
+        shouldDropPendingIds = true;
+        this.resetUploadRetryState();
+      } else if (this.uploadRetryCount >= SNAPSHOT_UPLOAD_MAX_RETRIES) {
+        shouldDropPendingIds = true;
+        this.resetUploadRetryState();
+        console.error('[18ways] Giving up on DOM snapshot upload after repeated failures.');
+      } else {
+        shouldScheduleRetry = true;
+      }
     } finally {
       this.captureInFlight = false;
       const shouldRecapture = this.recaptureAfterCurrentUpload;
       this.recaptureAfterCurrentUpload = false;
-      if ((shouldRecapture || this.translationIdsToCapture.size) && this.captureTimer === null) {
+
+      if (shouldDropPendingIds) {
+        this.translationIdsToCapture.clear();
+      }
+
+      if (shouldScheduleRetry) {
+        this.scheduleUploadRetry();
+      } else if (shouldRecapture && this.captureTimer === null && this.retryTimer === null) {
         this.scheduleCapture();
       }
     }
