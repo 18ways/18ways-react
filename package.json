@@ -4,22 +4,23 @@
   "type": "module",
   "main": "dist/bundle.cjs.js",
   "module": "dist/bundle.esm.js",
-  "types": "./index.tsx",
+  "types": "./dist-types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./index.tsx",
-      "import": "./index.tsx",
+      "types": "./dist-types/index.d.ts",
+      "import": "./dist/bundle.esm.js",
+      "default": "./dist/bundle.esm.js",
       "require": "./dist/bundle.cjs.js"
     },
     "./testing": {
-      "types": "./testing.ts",
-      "import": "./testing.ts"
+      "types": "./dist-types/testing.d.ts",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
     }
   },
   "files": [
     "dist",
-    "*.ts",
-    "*.tsx",
+    "dist-types",
     "global.d.ts"
   ],
   "scripts": {

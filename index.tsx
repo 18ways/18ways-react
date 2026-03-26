@@ -43,6 +43,7 @@ import { formatWaysParser, isRuntimeOnlyWaysMessage } from '@18ways/core/parsers
 import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/translation-store';
 import { registerQueueClearFn } from './testing';
 import { registerRuntimeResetFn } from './testing';
+import { isTestEnvironment } from './runtime-env';
 import { readAcceptedLocalesFromWindow } from '@18ways/core/client-accepted-locales';
 import { decryptTranslationValue } from '@18ways/core/crypto';
 import {
@@ -549,7 +550,7 @@ const emptyStore = new TranslationStore({
   fetchTranslations: async () => ({ data: [], errors: [] }),
 });
 
-if (process.env.NODE_ENV === 'test') {
+if (isTestEnvironment()) {
   registerRuntimeResetFn(() => {
     transitionFallbackLocaleSingleton = null;
     mountedContextCountsSingleton.clear();
@@ -1147,7 +1148,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
   );
 
   useEffect(() => {
-    if (process.env.NODE_ENV !== 'test') {
+    if (!isTestEnvironment()) {
       return;
     }
 
@@ -1272,7 +1273,7 @@ export const Ways: React.FC<WaysProps> = (props) => {
     } = props;
 
     const defaultLocale = locale || baseLocale || 'en-GB';
-    const shouldResetServerCache = process.env.NODE_ENV === 'test';
+    const shouldResetServerCache = isTestEnvironment();
     const hasResetServerCacheRef = useRef(false);
     if (
       typeof window === 'undefined' &&

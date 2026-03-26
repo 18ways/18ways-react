@@ -6,6 +6,7 @@ import {
   type _RequestInitDecorator,
 } from '@18ways/core/common';
 import { flushSync } from 'react-dom';
+import { isTestEnvironment } from './runtime-env';
 import { registerRuntimeResetFn } from './testing';
 
 const DOM_SNAPSHOT_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
@@ -174,7 +175,7 @@ export const setDomSnapshotTranslationOverridesForTesting = (
     }
   >
 ): void => {
-  if (process.env.NODE_ENV !== 'test') {
+  if (!isTestEnvironment()) {
     throw new Error('This function is only available in test environments');
   }
 
@@ -187,7 +188,7 @@ export const setDomSnapshotTranslationOverridesForTesting = (
 };
 
 export const clearDomSnapshotTranslationOverridesForTesting = (): void => {
-  if (process.env.NODE_ENV !== 'test') {
+  if (!isTestEnvironment()) {
     throw new Error('This function is only available in test environments');
   }
 
@@ -807,7 +808,7 @@ class DomSnapshotRuntime {
 
 let domSnapshotRuntime: DomSnapshotRuntime | null = null;
 
-if (process.env.NODE_ENV === 'test') {
+if (isTestEnvironment()) {
   registerRuntimeResetFn(() => {
     domSnapshotRuntime?.stop();
     domSnapshotRuntime = null;

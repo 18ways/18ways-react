@@ -40,7 +40,7 @@ const teardown = async (): Promise<void> => {
   }
 
   try {
-    const reactTesting = await import('@18ways/react/testing');
+    const reactTesting = await import('../testing');
     reactTesting.resetTestRuntimeState();
   } catch {
     // Ignore reset failures during shutdown.
@@ -68,9 +68,9 @@ process.on('uncaughtException', (error) => {
 });
 
 const run = async () => {
-  const reactRuntime = await import('@18ways/react');
+  const reactRuntime = await import('../index');
   const testingLibrary = await import('@testing-library/react');
-  const reactTesting = await import('@18ways/react/testing');
+  const reactTesting = await import('../testing');
 
   const { render, screen } = testingLibrary;
   const { T, Ways, useT } = reactRuntime;

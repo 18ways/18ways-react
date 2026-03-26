@@ -1,3 +1,5 @@
+import { isTestEnvironment } from './runtime-env';
+
 const clearQueueFns = new Set<() => Promise<void>>();
 const runtimeResetFns = new Set<() => void>();
 
@@ -16,7 +18,7 @@ export const registerRuntimeResetFn = (resetRuntimeState: () => void): (() => vo
 };
 
 export const resetTestRuntimeState = (): void => {
-  if (process.env.NODE_ENV !== 'test') {
+  if (!isTestEnvironment()) {
     throw new Error('This function is only available in test environments');
   }
 
@@ -32,7 +34,7 @@ export const resetTestRuntimeState = (): void => {
 };
 
 export const clearQueueForTests = async () => {
-  if (process.env.NODE_ENV !== 'test') {
+  if (!isTestEnvironment()) {
     throw new Error('This function is only available in test environments');
   }
 
