@@ -2053,6 +2053,22 @@ export const useCurrentLocale = (): string => {
   return rootContext.targetLocale || rootContext.defaultLocale || 'en-GB';
 };
 
+export const useBaseLocale = (): string => {
+  const rootContext = useContext(WaysRootContext);
+  return rootContext.baseLocale || rootContext.defaultLocale || 'en-GB';
+};
+
+export const useTargetLocale = (): string => {
+  const context = useContext(Context);
+
+  if (context?.targetLocale) {
+    return context.targetLocale;
+  }
+
+  const rootContext = useContext(WaysRootContext);
+  return rootContext.targetLocale || rootContext.defaultLocale || 'en-GB';
+};
+
 export const useSetCurrentLocale = (): ((nextLocale: string) => void) => {
   const rootContext = useContext(WaysRootContext);
   return useCallback(
