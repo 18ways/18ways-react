@@ -2060,12 +2060,12 @@ export const useBaseLocale = (): string => {
 
 export const useTargetLocale = (): string => {
   const context = useContext(Context);
+  const rootContext = useContext(WaysRootContext);
 
   if (context?.targetLocale) {
     return context.targetLocale;
   }
 
-  const rootContext = useContext(WaysRootContext);
   return rootContext.targetLocale || rootContext.defaultLocale || 'en-GB';
 };
 
