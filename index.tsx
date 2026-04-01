@@ -652,14 +652,7 @@ const WaysRoot: React.FC<{
 
   if (typeof window === 'undefined' && runtimeConfigServerResolutionKey) {
     if (!runtimeConfigServerResolution) {
-      const runtimeConfigPromise = fetchConfig({
-        apiKey,
-        apiUrl: _apiUrl,
-        origin: requestOrigin,
-        fetcher,
-        cacheTtlSeconds: cacheTtl,
-        _requestInitDecorator: requestInitDecorator,
-      }).then((config) => {
+      const runtimeConfigPromise = fetchConfig().then((config) => {
         runtimeConfigServerResolutionsSingleton.set(runtimeConfigServerResolutionKey, {
           status: 'resolved',
           locales: resolveAcceptedLocales(
@@ -704,14 +697,7 @@ const WaysRoot: React.FC<{
 
     let cancelled = false;
 
-    void fetchConfig({
-      apiKey,
-      apiUrl: _apiUrl,
-      origin: requestOrigin,
-      fetcher,
-      cacheTtlSeconds: cacheTtl,
-      _requestInitDecorator: requestInitDecorator,
-    })
+    void fetchConfig()
       .then((config) => {
         if (cancelled) {
           return;

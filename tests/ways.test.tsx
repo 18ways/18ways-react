@@ -118,14 +118,7 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
-      expect(fetchConfig).toHaveBeenCalledWith({
-        apiKey: 'test-api-key',
-        apiUrl: undefined,
-        origin: undefined,
-        fetcher: undefined,
-        cacheTtlSeconds: undefined,
-        _requestInitDecorator: undefined,
-      });
+      expect(fetchConfig).toHaveBeenCalledWith();
       expect(window.__18WAYS_ACCEPTED_LOCALES__).toEqual(['en-GB', 'es-ES']);
     });
   });

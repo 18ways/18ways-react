@@ -330,14 +330,7 @@ describe('WaysRoot - Seed gating', () => {
       </React.Suspense>
     );
 
-    expect(fetchConfig).toHaveBeenCalledWith({
-      apiKey: 'test-api-key',
-      apiUrl: undefined,
-      origin: undefined,
-      fetcher: undefined,
-      cacheTtlSeconds: undefined,
-      _requestInitDecorator: undefined,
-    });
+    expect(fetchConfig).toHaveBeenCalledWith();
     expect(extractInjectedAcceptedLocales(html)).toEqual(['en-GB', 'es-ES', 'ja-JP']);
     expect(extractInjectedTranslationFallbackConfig(html)).toEqual({
       default: 'blank',
