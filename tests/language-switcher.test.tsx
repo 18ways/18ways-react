@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { Ways, T, LanguageSwitcher } from '../index';
-import { fetchConfig, fetchSeed, fetchTranslations } from '@18ways/core/common';
+import { fetchConfig, fetchKnown, fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { internalT } from '@18ways/core/internal-i18n';
 import { clearQueueForTests } from '../testing';
 
@@ -18,6 +18,7 @@ vi.mock('@18ways/core/common', async () => {
       total: 0,
       translationFallback: { default: 'source', overrides: [] },
     })),
+    fetchKnown: vi.fn(async (entries) => ({ data: entries, errors: [] })),
     fetchTranslations: vi.fn(),
     fetchSeed: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
@@ -200,6 +201,7 @@ describe('LanguageSwitcher', () => {
     };
 
     vi.clearAllMocks();
+    vi.mocked(fetchKnown).mockImplementation(async (entries) => ({ data: entries, errors: [] }));
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });
 

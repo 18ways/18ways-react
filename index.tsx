@@ -24,6 +24,7 @@ import {
   getWindowTranslationFallbackConfig,
   type _RequestInitDecorator,
   fetchConfig,
+  fetchKnown,
   resolveAcceptedLocales,
   resolveTranslationFallbackMode,
   resetServerInMemoryTranslations,
@@ -547,6 +548,7 @@ type WaysRootContextType = {
 
 const emptyStore = new TranslationStore({
   translations: {},
+  fetchKnown: async () => ({ data: [], errors: [] }),
   fetchTranslations: async () => ({ data: [], errors: [] }),
 });
 
@@ -1834,7 +1836,9 @@ export const useT = ({
         };
 
         if (baseLocale && targetLocale && baseLocale === targetLocale) {
-          queueTranslation(queuedEntry);
+          if (typeof window !== 'undefined') {
+            queueTranslation(queuedEntry);
+          }
           return sourceText;
         }
 

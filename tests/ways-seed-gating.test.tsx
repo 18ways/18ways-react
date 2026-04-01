@@ -6,6 +6,7 @@ import { Writable } from 'node:stream';
 import { Ways, T } from '../index';
 import {
   fetchConfig,
+  fetchKnown,
   fetchSeed,
   fetchTranslations,
   resetServerInMemoryTranslations,
@@ -22,6 +23,7 @@ vi.mock('@18ways/core/common', async () => {
       total: 0,
       translationFallback: { default: 'source', overrides: [] },
     })),
+    fetchKnown: vi.fn(),
     fetchSeed: vi.fn(),
     fetchTranslations: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
@@ -273,14 +275,20 @@ describe('WaysRoot - Seed gating', () => {
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
   });
 
-  it('does not block server render on same-locale capture requests', async () => {
-    const translateDeferred = createDeferred<{ data: Array<any>; errors: Array<any> }>();
+  it('does not make same-locale observation calls during server render', async () => {
     vi.mocked(fetchSeed).mockResolvedValue({
       data: {},
     });
-    vi.mocked(fetchTranslations).mockReturnValue(translateDeferred.promise);
+    vi.mocked(fetchKnown).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
 
-    const htmlPromise = renderServer(
+    const html = await renderServer(
       <React.Suspense fallback={null}>
         <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB" context="key-1">
           <T>Hello</T>
@@ -288,36 +296,9 @@ describe('WaysRoot - Seed gating', () => {
       </React.Suspense>
     );
 
-    await waitForCondition(() => {
-      expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
-    });
-
-    let resolvedHtml: string | null = null;
-    void htmlPromise.then((html) => {
-      resolvedHtml = html;
-    });
-
-    await waitForCondition(() => {
-      expect(typeof resolvedHtml).toBe('string');
-    });
-
-    expect(resolvedHtml).toContain('Hello');
-
-    translateDeferred.resolve({
-      data: [
-        {
-          locale: 'en-GB',
-          key: 'key-1',
-          textHash: '["Hello","key-1"]',
-          contextFingerprint: null,
-          translationId: 'group-1',
-          translation: 'Hello',
-        },
-      ],
-      errors: [],
-    });
-
-    await htmlPromise;
+    expect(html).toContain('Hello');
+    expect(vi.mocked(fetchKnown)).not.toHaveBeenCalled();
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
   });
 
   it('resolves accepted locales during server render and injects them for hydration', async () => {

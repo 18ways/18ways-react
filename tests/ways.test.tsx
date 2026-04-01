@@ -1,8 +1,8 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
-import { Ways } from '../index';
-import { fetchConfig, fetchSeed, init } from '@18ways/core/common';
+import { T, Ways } from '../index';
+import { fetchConfig, fetchKnown, fetchSeed, fetchTranslations, init } from '@18ways/core/common';
 import { resetTestRuntimeState } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
@@ -14,8 +14,10 @@ vi.mock('@18ways/core/common', async () => {
       total: 1,
       translationFallback: { default: 'source', overrides: [] },
     })),
+    fetchKnown: vi.fn().mockResolvedValue({ data: [], errors: [] }),
     init: vi.fn(),
     fetchSeed: vi.fn().mockResolvedValue({ data: {}, errors: [] }),
+    fetchTranslations: vi.fn().mockResolvedValue({ data: [], errors: [] }),
   };
 });
 
@@ -36,6 +38,28 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
+  });
+
+  it('uses known preflight for same-locale nested contexts on the client', async () => {
+    vi.mocked(fetchKnown).mockImplementation(async (entries) => ({
+      data: entries,
+      errors: [],
+    }));
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
+        <Ways context="key-1">
+          <T>Test App</T>
+        </Ways>
+      </Ways>
+    );
+
+    await waitFor(() => {
+      expect(vi.mocked(fetchKnown)).toHaveBeenCalledTimes(1);
+    });
+
+    expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
   });
 
   it('does not call seed when root context is missing', () => {
