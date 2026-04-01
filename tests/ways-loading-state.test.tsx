@@ -246,6 +246,22 @@ describe('useTranslationLoading', () => {
     await waitFor(() => {
       expect(screen.getByTestId('translation-loading')).toHaveTextContent('idle');
     });
+
+    await act(async () => {
+      deferred.resolve({
+        data: [
+          {
+            locale: 'es-ES',
+            key: 'content',
+            textHash: '["Hello","content"]',
+            translation: 'Hola',
+          },
+        ],
+        errors: [],
+      });
+      await deferred.promise;
+      await clearQueueForTests();
+    });
   });
 
   it('keeps the previous locale visible while the next locale is still loading', async () => {
@@ -304,6 +320,28 @@ describe('useTranslationLoading', () => {
     });
 
     expect(getBodyText()).not.toContain('Hello');
+
+    await act(async () => {
+      deferred.resolve({
+        data: [
+          {
+            locale: 'ja-JP',
+            key: 'key-1',
+            textHash: '["Hello","key-1"]',
+            translation: 'こんにちは',
+          },
+          {
+            locale: 'ja-JP',
+            key: 'key-1',
+            textHash: '["Goodbye","key-1"]',
+            translation: 'さようなら',
+          },
+        ],
+        errors: [],
+      });
+      await deferred.promise;
+      await clearQueueForTests();
+    });
   });
 
   it('does not create a pending seed when switching to a locale that is already cached for the context', async () => {
