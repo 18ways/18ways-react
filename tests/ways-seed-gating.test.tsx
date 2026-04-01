@@ -273,6 +273,53 @@ describe('WaysRoot - Seed gating', () => {
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
   });
 
+  it('does not block server render on same-locale capture requests', async () => {
+    const translateDeferred = createDeferred<{ data: Array<any>; errors: Array<any> }>();
+    vi.mocked(fetchSeed).mockResolvedValue({
+      data: {},
+    });
+    vi.mocked(fetchTranslations).mockReturnValue(translateDeferred.promise);
+
+    const htmlPromise = renderServer(
+      <React.Suspense fallback={null}>
+        <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB" context="key-1">
+          <T>Hello</T>
+        </Ways>
+      </React.Suspense>
+    );
+
+    await waitForCondition(() => {
+      expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+    });
+
+    let resolvedHtml: string | null = null;
+    void htmlPromise.then((html) => {
+      resolvedHtml = html;
+    });
+
+    await waitForCondition(() => {
+      expect(typeof resolvedHtml).toBe('string');
+    });
+
+    expect(resolvedHtml).toContain('Hello');
+
+    translateDeferred.resolve({
+      data: [
+        {
+          locale: 'en-GB',
+          key: 'key-1',
+          textHash: '["Hello","key-1"]',
+          contextFingerprint: null,
+          translationId: 'group-1',
+          translation: 'Hello',
+        },
+      ],
+      errors: [],
+    });
+
+    await htmlPromise;
+  });
+
   it('resolves accepted locales during server render and injects them for hydration', async () => {
     vi.mocked(fetchConfig).mockResolvedValue({
       languages: [

@@ -48,7 +48,7 @@ export const InjectTranslations = ({
     return null;
   }
 
-  const hasPendingStoreWork = store.hasPendingEntries() || store.hasInFlightEntries();
+  const hasPendingStoreWork = store.hasPendingRequests() || store.hasInFlightRequests();
   const pendingSeedWork = hasPendingSeedWork();
   if (!hasPendingStoreWork && !pendingSeedWork) {
     return renderTranslationsScript(translations, acceptedLocales, translationFallbackConfig);
@@ -57,7 +57,7 @@ export const InjectTranslations = ({
   if (!idlePromiseRef.current) {
     idlePromiseRef.current = Promise.resolve()
       .then(async () => {
-        await store.waitForIdle();
+        await store.waitForBlockingIdle();
         await waitForPendingSeedWork();
       })
       .finally(() => {
