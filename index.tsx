@@ -2106,7 +2106,13 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
 
     return buildLanguagesFromLocaleCodes(localeCodes);
   }, [currentLocale, rootContext.acceptedLocales]);
-  const isTranslationLoading = rootLoadingSnapshot.hasPending || rootLoadingSnapshot.hasInFlight;
+  const hasPendingLocaleTransition = Boolean(
+    rootContext.transitionFallbackLocale &&
+      canonicalizeLocale(rootContext.transitionFallbackLocale).toLowerCase() !==
+        canonicalizeLocale(currentLocale).toLowerCase()
+  );
+  const isTranslationLoading =
+    hasPendingLocaleTransition || rootLoadingSnapshot.hasPending || rootLoadingSnapshot.hasInFlight;
 
   return (
     <InternalLanguageSwitcher

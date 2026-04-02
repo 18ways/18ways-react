@@ -248,6 +248,47 @@ describe('LanguageSwitcher', () => {
     }
   });
 
+  it('keeps spinner active while seed work is still pending', async () => {
+    const seedDeferred = createDeferred<any>();
+    vi.mocked(fetchSeed).mockReturnValue(seedDeferred.promise);
+    vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
+    vi.useFakeTimers();
+
+    try {
+      render(<AppWithLanguageSwitcher />);
+
+      fireEvent.click(getTriggerButton());
+      fireEvent.click(screen.getByRole('option', { name: /Spanish/i }));
+
+      expect(getTriggerButton()).toBeDisabled();
+
+      await flushMicrotasks();
+      await advanceChangeTimers(CHANGE_SETTLE_TIMEOUT_MS + 50);
+
+      expect(getTriggerButton()).toBeDisabled();
+      expect(fetchTranslations).not.toHaveBeenCalled();
+
+      await act(async () => {
+        seedDeferred.resolve({
+          data: {
+            'key-1': {
+              '["Hello","key-1"]': 'Hola',
+            },
+          },
+        });
+        await seedDeferred.promise;
+      });
+      await clearQueueWithFakeTimers();
+      await flushMicrotasks();
+
+      expect(screen.getByTestId('translated-text')).toHaveTextContent('Hola');
+      expect(getTriggerButton()).not.toBeDisabled();
+      expect(fetchTranslations).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders locale flags from supported locales data', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
 
