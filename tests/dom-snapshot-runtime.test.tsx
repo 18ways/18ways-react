@@ -84,7 +84,17 @@ const translationResponse = () =>
         },
       ],
       errors: [],
-      snapshotRequestTranslationIds: [TRANSLATION_ID],
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
+
+const snapshotCoverageResponse = (translationIds: string[] = [TRANSLATION_ID]) =>
+  new Response(
+    JSON.stringify({
+      snapshotRequestTranslationIds: translationIds,
     }),
     {
       status: 200,
@@ -136,6 +146,10 @@ describe('DOM snapshot runtime', () => {
 
       if (url.endsWith('/translate')) {
         return translationResponse();
+      }
+
+      if (url.endsWith('/dom-snapshots/coverage')) {
+        return snapshotCoverageResponse();
       }
 
       if (url.endsWith('/dom-snapshots/upload')) {
@@ -209,6 +223,10 @@ describe('DOM snapshot runtime', () => {
         return translationResponse();
       }
 
+      if (url.endsWith('/dom-snapshots/coverage')) {
+        return snapshotCoverageResponse();
+      }
+
       if (url.endsWith('/dom-snapshots/upload')) {
         uploadStatuses.push(403);
         return new Response(null, { status: 403 });
@@ -252,6 +270,10 @@ describe('DOM snapshot runtime', () => {
         return translationResponse();
       }
 
+      if (url.endsWith('/dom-snapshots/coverage')) {
+        return snapshotCoverageResponse();
+      }
+
       if (url.endsWith('/dom-snapshots/upload')) {
         uploadStatuses.push(503);
         return new Response(null, { status: 503 });
@@ -271,6 +293,46 @@ describe('DOM snapshot runtime', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it('skips uploads when coverage says fresh snapshots already exist', async () => {
+    const uploadStatuses: number[] = [];
+
+    global.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.endsWith('/translate')) {
+        return translationResponse();
+      }
+
+      if (url.endsWith('/dom-snapshots/coverage')) {
+        return snapshotCoverageResponse([]);
+      }
+
+      if (url.endsWith('/dom-snapshots/upload')) {
+        uploadStatuses.push(200);
+        return new Response(null, { status: 200 });
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`);
+    }) as typeof fetch;
+
+    renderSnapshotRuntime();
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('greeting')).toHaveTextContent('Hola Alice');
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+
+    expect(uploadStatuses).toHaveLength(0);
   });
 
   it('does not start DOM snapshot uploads for the demo token', async () => {

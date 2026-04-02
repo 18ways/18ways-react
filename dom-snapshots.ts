@@ -52,6 +52,10 @@ interface CapturePayload {
   capturedAt: string;
 }
 
+interface SnapshotCoverageResponse {
+  snapshotRequestTranslationIds?: string[];
+}
+
 const normalizeApiBase = (apiUrl?: string): string => {
   const base = (apiUrl || 'https://internal.18ways.com/api').replace(/\/$/, '');
   if (base.endsWith('/api')) {
@@ -59,6 +63,9 @@ const normalizeApiBase = (apiUrl?: string): string => {
   }
   return `${base}/api`;
 };
+
+const toSnapshotCoverageUrl = (apiUrl?: string): string =>
+  `${normalizeApiBase(apiUrl)}/dom-snapshots/coverage`;
 
 const toSnapshotUploadUrl = (apiUrl?: string): string =>
   `${normalizeApiBase(apiUrl)}/dom-snapshots/upload`;
@@ -319,11 +326,14 @@ class DomSnapshotRuntime {
   private translationEntriesById = new Map<string, RuntimeTranslationEntry>();
   private translationIdsToCapture = new Set<string>();
   private lastCapturedByTranslationId = new Map<string, number>();
+  private lastCoverageCheckedByTranslationId = new Map<string, number>();
+  private pendingCoverageTranslationIds = new Set<string>();
   private unsubscribeNetwork: (() => void) | null = null;
   private mutationObserver: MutationObserver | null = null;
   private captureTimer: number | null = null;
   private retryTimer: number | null = null;
   private captureInFlight = false;
+  private coverageCheckInFlight = false;
   private recaptureAfterCurrentUpload = false;
   private ignoreMutations = false;
   private firstCaptureSignalAt: number | null = null;
@@ -375,11 +385,18 @@ class DomSnapshotRuntime {
     this.firstCaptureSignalAt = null;
     this.lastCaptureSignalAt = null;
     this.uploadRetryCount = 0;
+    this.coverageCheckInFlight = false;
+    this.pendingCoverageTranslationIds.clear();
+    this.translationIdsToCapture.clear();
+    this.translationEntriesById.clear();
+    this.lastCapturedByTranslationId.clear();
+    this.lastCoverageCheckedByTranslationId.clear();
     clearTemporaryOverrides();
   };
 
   private onNetworkEvent = (event: RuntimeNetworkEvent): void => {
     const now = Date.now();
+    const translationIdsToCheck: string[] = [];
 
     if (event.type === 'seed') {
       event.result.translationEntries?.forEach((entry) => {
@@ -387,10 +404,7 @@ class DomSnapshotRuntime {
           ...entry,
           locale: event.targetLocale,
         });
-      });
-      (event.result.snapshotRequestTranslationIds || []).forEach((translationId) => {
-        if (!translationId) return;
-        this.translationIdsToCapture.add(translationId);
+        translationIdsToCheck.push(entry.translationId);
       });
     }
 
@@ -407,22 +421,128 @@ class DomSnapshotRuntime {
           contextFingerprint,
           locale: entry.locale,
         });
-      });
-      (event.result.snapshotRequestTranslationIds || []).forEach((translationId) => {
-        if (!translationId) return;
-        this.translationIdsToCapture.add(translationId);
+        translationIdsToCheck.push(entry.translationId);
       });
     }
 
-    this.translationEntriesById.forEach((_, translationId) => {
-      const last = this.lastCapturedByTranslationId.get(translationId);
-      if (!last || now - last > DOM_SNAPSHOT_REFRESH_MS) {
-        this.translationIdsToCapture.add(translationId);
+    const candidates = unique(translationIdsToCheck).filter((translationId) =>
+      this.shouldCheckCoverageForTranslation(translationId, now)
+    );
+    if (candidates.length) {
+      this.queueCoverageCheck(candidates);
+    }
+  };
+
+  private shouldCheckCoverageForTranslation = (translationId: string, now: number): boolean => {
+    if (!translationId || !this.translationEntriesById.has(translationId)) {
+      return false;
+    }
+
+    const lastCaptured = this.lastCapturedByTranslationId.get(translationId);
+    if (lastCaptured && now - lastCaptured <= DOM_SNAPSHOT_REFRESH_MS) {
+      return false;
+    }
+
+    const lastCoverageCheck = this.lastCoverageCheckedByTranslationId.get(translationId);
+    if (lastCoverageCheck && now - lastCoverageCheck <= DOM_SNAPSHOT_REFRESH_MS) {
+      return false;
+    }
+
+    return true;
+  };
+
+  private queueCoverageCheck = (translationIds: string[]): void => {
+    translationIds.forEach((translationId) => {
+      if (!translationId || !this.translationEntriesById.has(translationId)) {
+        return;
       }
+      this.pendingCoverageTranslationIds.add(translationId);
     });
 
-    if (this.translationIdsToCapture.size) {
-      this.scheduleCapture();
+    if (!this.pendingCoverageTranslationIds.size) {
+      return;
+    }
+
+    void this.flushCoverageChecks();
+  };
+
+  private fetchSnapshotCoverage = async (
+    translationIds: string[]
+  ): Promise<SnapshotCoverageResponse> => {
+    const endpoint = toSnapshotCoverageUrl(this.options.apiUrl);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-api-key': this.options.apiKey,
+    };
+    if (this.options.requestOrigin) {
+      headers.origin = this.options.requestOrigin;
+    }
+
+    const requestInit: RequestInit = {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ translationIds }),
+    };
+    const finalRequestInit = this.options.requestInitDecorator
+      ? this.options.requestInitDecorator({
+          url: endpoint,
+          method: 'POST',
+          requestInit: requestInit as RequestInit & Record<string, unknown>,
+          cacheTtlSeconds: 0,
+        })
+      : (requestInit as RequestInit & Record<string, unknown>);
+
+    const response = await fetch(endpoint, finalRequestInit as RequestInit);
+    if (!response.ok) {
+      throw new Error(`Snapshot coverage lookup failed (${response.status})`);
+    }
+
+    return (await response.json()) as SnapshotCoverageResponse;
+  };
+
+  private flushCoverageChecks = async (): Promise<void> => {
+    if (this.coverageCheckInFlight || !this.pendingCoverageTranslationIds.size) {
+      return;
+    }
+
+    this.coverageCheckInFlight = true;
+    const translationIds = Array.from(this.pendingCoverageTranslationIds);
+    this.pendingCoverageTranslationIds.clear();
+
+    try {
+      const response = await this.fetchSnapshotCoverage(translationIds);
+      const now = Date.now();
+      translationIds.forEach((translationId) => {
+        this.lastCoverageCheckedByTranslationId.set(translationId, now);
+      });
+
+      unique(response.snapshotRequestTranslationIds || []).forEach((translationId) => {
+        if (!translationId || !this.translationEntriesById.has(translationId)) {
+          return;
+        }
+        this.translationIdsToCapture.add(translationId);
+      });
+
+      if (this.translationIdsToCapture.size) {
+        this.scheduleCapture();
+      }
+    } catch (error) {
+      console.error('[18ways] Failed to determine DOM snapshot coverage:', error);
+      translationIds.forEach((translationId) => {
+        if (!translationId || !this.translationEntriesById.has(translationId)) {
+          return;
+        }
+        this.translationIdsToCapture.add(translationId);
+      });
+
+      if (this.translationIdsToCapture.size) {
+        this.scheduleCapture();
+      }
+    } finally {
+      this.coverageCheckInFlight = false;
+      if (this.pendingCoverageTranslationIds.size) {
+        void this.flushCoverageChecks();
+      }
     }
   };
 
@@ -770,6 +890,7 @@ class DomSnapshotRuntime {
       const now = Date.now();
       Object.keys(translationSelectorMap).forEach((translationId) => {
         this.lastCapturedByTranslationId.set(translationId, now);
+        this.lastCoverageCheckedByTranslationId.set(translationId, now);
         if (!this.recaptureAfterCurrentUpload) {
           this.translationIdsToCapture.delete(translationId);
         }
