@@ -15,6 +15,7 @@ vi.mock('@18ways/core/common', async () => {
       total: 0,
       translationFallback: { default: 'source', overrides: [] },
     })),
+    fetchKnown: vi.fn().mockResolvedValue({ data: [], errors: [] }),
     fetchTranslations: vi.fn(),
     fetchSeed: vi.fn(),
     generateHashId: vi.fn((x) => JSON.stringify(x)),
@@ -362,7 +363,9 @@ describe('useTranslationLoading', () => {
     render(<CachedLocaleReturnApp />);
 
     await waitFor(() => {
-      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['cookie-consent'], 'fr-FR');
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['cookie-consent'], 'fr-FR', {
+        origin: undefined,
+      });
     });
 
     vi.mocked(fetchSeed).mockClear();
@@ -511,7 +514,9 @@ describe('useTranslationLoading', () => {
     fireEvent.click(screen.getByText('Switch locale'));
 
     await waitFor(() => {
-      expect(fetchSeed).toHaveBeenCalledWith(['key-1'], 'ja-JP');
+      expect(fetchSeed).toHaveBeenCalledWith(['key-1'], 'ja-JP', {
+        origin: undefined,
+      });
     });
 
     expect(screen.getByText('Bonjour')).toBeInTheDocument();

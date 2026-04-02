@@ -80,7 +80,8 @@ describe('WaysRoot - Performance and Caching', () => {
         expect.objectContaining({ text: 'Text 1' }),
         expect.objectContaining({ text: 'Text 2' }),
         expect.objectContaining({ text: 'Text 3' }),
-      ])
+      ]),
+      { origin: undefined }
     );
   });
 
@@ -114,7 +115,8 @@ describe('WaysRoot - Performance and Caching', () => {
 
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ text: 'Duplicate' })])
+      expect.arrayContaining([expect.objectContaining({ text: 'Duplicate' })]),
+      { origin: undefined }
     );
     expect(vi.mocked(fetchTranslations).mock.calls[0][0]).toHaveLength(1);
   });

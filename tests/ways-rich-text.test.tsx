@@ -22,11 +22,14 @@ vi.mock('@18ways/core/common', async () => {
 });
 
 const expectSingleTranslationRequest = (expectedText: string) => {
-  expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith([
-    expect.objectContaining({
-      text: expectedText,
-    }),
-  ]);
+  expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
+    [
+      expect.objectContaining({
+        text: expectedText,
+      }),
+    ],
+    { origin: undefined }
+  );
 };
 
 const normalizeHtml = (html: string): string => html.replace(/\s+/g, ' ').trim();

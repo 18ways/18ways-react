@@ -163,7 +163,9 @@ describe('useTranslatedMemo', () => {
     expect(screen.getByTestId('non-suspending-memo-value').textContent).toBe('Hello!');
 
     await waitFor(() => {
-      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['memo'], 'es-ES');
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['memo'], 'es-ES', {
+        origin: undefined,
+      });
       expect(screen.getByTestId('non-suspending-memo-value').textContent).toBe('Hola!');
     });
 

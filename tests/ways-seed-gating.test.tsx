@@ -140,7 +140,9 @@ describe('WaysRoot - Seed gating', () => {
     );
 
     await waitForCondition(() => {
-      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES');
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES', {
+        origin: undefined,
+      });
     });
 
     expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
@@ -330,7 +332,7 @@ describe('WaysRoot - Seed gating', () => {
       </React.Suspense>
     );
 
-    expect(fetchConfig).toHaveBeenCalledWith();
+    expect(fetchConfig).toHaveBeenCalledWith({ origin: undefined });
     expect(extractInjectedAcceptedLocales(html)).toEqual(['en-GB', 'es-ES', 'ja-JP']);
     expect(extractInjectedTranslationFallbackConfig(html)).toEqual({
       default: 'blank',

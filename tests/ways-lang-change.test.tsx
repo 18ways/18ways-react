@@ -82,7 +82,9 @@ describe('WaysRoot - Locale Changes', () => {
       expect(screen.getByText('Hola')).toBeInTheDocument();
     });
 
-    expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES');
+    expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES', {
+      origin: undefined,
+    });
     const seedOrder = vi.mocked(fetchSeed).mock.invocationCallOrder[0];
     const switchTranslateOrder = vi
       .mocked(fetchTranslations)

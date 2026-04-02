@@ -82,7 +82,9 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
-      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES');
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES', {
+        origin: undefined,
+      });
     });
   });
 

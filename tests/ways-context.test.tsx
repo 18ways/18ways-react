@@ -176,7 +176,8 @@ describe('WaysRoot - Context Nesting', () => {
           baseLocale: 'en-US',
           targetLocale: 'es-ES',
         }),
-      ])
+      ]),
+      { origin: undefined }
     );
   });
   it('attaches a context fingerprint and metadata to translation requests', async () => {
@@ -220,7 +221,8 @@ describe('WaysRoot - Context Nesting', () => {
             filePath: '',
           }),
         }),
-      ])
+      ]),
+      { origin: undefined }
     );
 
     expect(payload?.contextFingerprint).toBe(JSON.stringify(payload?.contextMetadata));
@@ -273,7 +275,8 @@ describe('WaysRoot - Context Nesting', () => {
             filePath: 'src/components/nav/Nav.tsx',
           }),
         }),
-      ])
+      ]),
+      { origin: undefined }
     );
   });
 

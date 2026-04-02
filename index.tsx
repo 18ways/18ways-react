@@ -398,7 +398,8 @@ const isScopeWaysProps = (props: WaysProps): props is WaysScopeProps =>
 
 const seedContextTranslationsBatch = async (
   contextKeys: string[],
-  targetLocale: string
+  targetLocale: string,
+  requestOrigin?: string
 ): Promise<void> => {
   if (typeof window !== 'undefined') {
     if (!window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
@@ -410,7 +411,7 @@ const seedContextTranslationsBatch = async (
     return;
   }
 
-  const seedResult = await fetchSeed(contextKeys, targetLocale);
+  const seedResult = await fetchSeed(contextKeys, targetLocale, { origin: requestOrigin });
   if (!seedResult?.data || typeof seedResult.data !== 'object' || Array.isArray(seedResult.data)) {
     return;
   }
@@ -652,7 +653,7 @@ const WaysRoot: React.FC<{
 
   if (typeof window === 'undefined' && runtimeConfigServerResolutionKey) {
     if (!runtimeConfigServerResolution) {
-      const runtimeConfigPromise = fetchConfig().then((config) => {
+      const runtimeConfigPromise = fetchConfig({ origin: requestOrigin }).then((config) => {
         runtimeConfigServerResolutionsSingleton.set(runtimeConfigServerResolutionKey, {
           status: 'resolved',
           locales: resolveAcceptedLocales(
@@ -905,7 +906,7 @@ const WaysRoot: React.FC<{
     await Promise.all(
       batches.map(async ([locale, contextKeys]) => {
         try {
-          await seedContextTranslationsBatch(contextKeys, locale);
+          await seedContextTranslationsBatch(contextKeys, locale, requestOrigin);
         } catch (error) {
           console.error('[18ways] Failed to seed initial context translations:', error);
         } finally {
