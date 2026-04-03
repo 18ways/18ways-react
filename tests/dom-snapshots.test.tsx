@@ -17,6 +17,7 @@ vi.mock('@18ways/core/common', async () => {
     ...actual,
     fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
     fetchKnown: vi.fn().mockResolvedValue({ data: [], errors: [] }),
+    fetchKnownContext: vi.fn().mockResolvedValue({ data: [], errors: [] }),
     fetchTranslations: vi.fn(),
     generateHashId: vi.fn((value) => JSON.stringify(value)),
   };

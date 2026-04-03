@@ -27,6 +27,7 @@ vi.mock('@18ways/core/common', async () => {
       translationFallback: { default: 'source', overrides: [] },
     })),
     fetchKnown: vi.fn().mockResolvedValue({ data: [], errors: [] }),
+    fetchKnownContext: vi.fn().mockResolvedValue({ data: [], errors: [] }),
     fetchSeed: vi.fn(async () => ({ data: {}, errors: [] })),
     generateHashId: vi.fn((value) => JSON.stringify(value)),
   };

@@ -2,7 +2,14 @@ import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { T, Ways } from '../index';
-import { fetchConfig, fetchKnown, fetchSeed, fetchTranslations, init } from '@18ways/core/common';
+import {
+  fetchConfig,
+  fetchKnown,
+  fetchKnownContext,
+  fetchSeed,
+  fetchTranslations,
+  init,
+} from '@18ways/core/common';
 import { resetTestRuntimeState } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
@@ -15,6 +22,7 @@ vi.mock('@18ways/core/common', async () => {
       translationFallback: { default: 'source', overrides: [] },
     })),
     fetchKnown: vi.fn().mockResolvedValue({ data: [], errors: [] }),
+    fetchKnownContext: vi.fn().mockResolvedValue({ data: [], errors: [] }),
     init: vi.fn(),
     fetchSeed: vi.fn().mockResolvedValue({ data: {}, errors: [] }),
     fetchTranslations: vi.fn().mockResolvedValue({ data: [], errors: [] }),
@@ -41,6 +49,10 @@ describe('WaysRoot - Seed call behavior', () => {
   });
 
   it('uses known preflight for same-locale nested contexts on the client', async () => {
+    vi.mocked(fetchKnownContext).mockImplementation(async () => ({
+      data: [],
+      errors: [],
+    }));
     vi.mocked(fetchKnown).mockImplementation(async (entries) => ({
       data: entries,
       errors: [],
@@ -55,6 +67,7 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
+      expect(vi.mocked(fetchKnownContext)).toHaveBeenCalledTimes(1);
       expect(vi.mocked(fetchKnown)).toHaveBeenCalledTimes(1);
     });
 
