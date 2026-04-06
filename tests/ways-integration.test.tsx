@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { Ways, T, useT, Translations } from '../index';
-import { fetchTranslations, fetchSeed } from '@18ways/core/common';
+import { Ways, T } from '../index';
+import { fetchTranslations } from '@18ways/core/common';
 import { clearQueueForTests } from '../testing';
 
 vi.mock('@18ways/core/common', async () => {
@@ -23,72 +23,9 @@ vi.mock('@18ways/core/common', async () => {
   };
 });
 
-const CompleteApp = () => {
-  const [page, setPage] = useState('home');
-  const t = useT();
-
-  const Link = ({ href, children }: any) => (
-    <a
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        setPage(href.slice(1));
-      }}
-    >
-      {children}
-    </a>
-  );
-
-  return (
-    <div>
-      <header>
-        <Ways context="header">
-          <nav>
-            <T>Navigation</T>
-          </nav>
-        </Ways>
-      </header>
-
-      <main>
-        {page === 'home' && (
-          <Ways context="home" components={{ link: Link }}>
-            <h1>
-              <T>Welcome Home</T>
-            </h1>
-            <p>
-              <T vars={{ user: 'John' }}>{'Hello {user}'}</T>
-            </p>
-            <T>
-              Go to <Link href="/about">About</Link> page
-            </T>
-          </Ways>
-        )}
-
-        {page === 'about' && (
-          <Ways context="about" components={{ link: Link }}>
-            <h1>
-              <T>About Us</T>
-            </h1>
-            <p>{t('Learn more about our company')}</p>
-            <T>
-              Back to <Link href="/home">Home</Link>
-            </T>
-          </Ways>
-        )}
-      </main>
-
-      <footer>
-        <Ways context="footer">
-          <T>© 2024 Company</T>
-        </Ways>
-      </footer>
-    </div>
-  );
-};
-
 describe('WaysRoot - Full Integration', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
   });
 

@@ -25,7 +25,7 @@ vi.mock('@18ways/core/common', async () => {
 
 describe('WaysRoot - Error Handling', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
   });
 
@@ -48,9 +48,11 @@ describe('WaysRoot - Error Handling', () => {
 
     const firstRender = render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="retry-key">
-          <T>Retry me</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="retry-key">
+            <T>Retry me</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -63,13 +65,15 @@ describe('WaysRoot - Error Handling', () => {
 
     firstRender.unmount();
     resetTestRuntimeState();
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
 
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="retry-key">
-          <T>Retry me</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="retry-key">
+            <T>Retry me</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -98,9 +102,11 @@ describe('WaysRoot - Error Handling', () => {
 
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T>Hello World</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T>Hello World</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -138,9 +144,11 @@ describe('WaysRoot - Error Handling', () => {
 
     const { rerender } = render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T>Error Text</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T>Error Text</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -154,9 +162,11 @@ describe('WaysRoot - Error Handling', () => {
 
     rerender(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T>Error Text</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T>Error Text</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -186,9 +196,11 @@ describe('WaysRoot - Error Handling', () => {
 
     const { rerender } = render(
       <Ways apiKey="test-api-key" locale="ja-JP" baseLocale="en-US">
-        <Ways context="test-key">
-          <T>Locale Mismatch</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T>Locale Mismatch</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -200,9 +212,11 @@ describe('WaysRoot - Error Handling', () => {
 
     rerender(
       <Ways apiKey="test-api-key" locale="ja-JP" baseLocale="en-US">
-        <Ways context="test-key">
-          <T>Locale Mismatch</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T>Locale Mismatch</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 

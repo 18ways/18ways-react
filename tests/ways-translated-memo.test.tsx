@@ -50,7 +50,7 @@ const NonSuspendingMemoConsumer = ({ suffix }: { suffix: string }) => {
 
 describe('useTranslatedMemo', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });

@@ -102,7 +102,7 @@ describe('WaysRoot - Dynamic Translation Logic', () => {
     expect(screen.getByText('kthxbai')).toBeInTheDocument();
 
     // Check that "Goodbye" was added to the window translations
-    expect(window.__18WAYS_IN_MEMORY_TRANSLATIONS__).toMatchObject({
+    expect(window.__18WAYS_TRANSLATION_STORE__?.translations).toMatchObject({
       'en-GB': {
         'key-1': {
           '["Hello","key-1"]': 'oh hai',

@@ -10,10 +10,15 @@ describe('SSR Bug Fix Test', () => {
   beforeEach(() => {
     // Clear all mocks before each test
     vi.clearAllMocks();
-    window.__18WAYS_ACCEPTED_LOCALES__ = ['en-US', 'ja-JP'];
-    window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = {
-      default: 'source',
-      overrides: [],
+    window.__18WAYS_TRANSLATION_STORE__ = {
+      translations: {},
+      config: {
+        acceptedLocales: ['en-US', 'ja-JP'],
+        translationFallback: {
+          default: 'source',
+          overrides: [],
+        },
+      },
     };
 
     (global.fetch as any).mockImplementation(async (input: string) => {
@@ -64,7 +69,7 @@ describe('SSR Bug Fix Test', () => {
       );
     };
 
-    const { getByTestId } = render(<TestComponent />);
+    render(<TestComponent />);
 
     // Check that fetch was called to get translations
     await waitFor(

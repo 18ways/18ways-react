@@ -26,7 +26,7 @@ vi.mock('@18ways/core/common', async () => {
 
 describe('WaysRoot - Message Formatter', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });
@@ -426,9 +426,11 @@ describe('WaysRoot - Message Formatter', () => {
 
     const es = render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T vars={{ createdAt }}>{source}</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T vars={{ createdAt }}>{source}</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -445,9 +447,11 @@ describe('WaysRoot - Message Formatter', () => {
 
     render(
       <Ways apiKey="test-api-key" locale="ja-JP" baseLocale="en-US">
-        <Ways context="test-key">
-          <T vars={{ createdAt }}>{source}</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T vars={{ createdAt }}>{source}</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -468,9 +472,11 @@ describe('WaysRoot - Message Formatter', () => {
 
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T vars={{ amount: 1234.5, createdAt: new Date(Date.UTC(2024, 0, 15)) }}>{source}</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="test-key">
+            <T vars={{ amount: 1234.5, createdAt: new Date(Date.UTC(2024, 0, 15)) }}>{source}</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 

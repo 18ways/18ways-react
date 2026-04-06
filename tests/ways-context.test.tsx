@@ -26,7 +26,7 @@ vi.mock('@18ways/core/common', async () => {
 
 describe('WaysRoot - Context Nesting', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });
@@ -146,6 +146,51 @@ describe('WaysRoot - Context Nesting', () => {
     expect(screen.getByTestId('french')).toHaveTextContent('Bonjour');
   });
 
+  it('keeps the outer tree visible while a nested WaysRoot subtree resolves', async () => {
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'es-ES',
+          key: 'nested-hero',
+          textHash: '["Nested hero","nested-hero"]',
+          translation: 'Hero anidado',
+        },
+      ],
+      errors: [],
+    });
+
+    const NestedHero = () => {
+      return (
+        <div data-testid="nested-hero">
+          <T>Nested hero</T>
+        </div>
+      );
+    };
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
+        <div data-testid="outer-shell">Outer shell</div>
+        <React.Suspense fallback={null}>
+          <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-GB" persistLocaleCookie={false}>
+            <Ways context="nested-hero">
+              <NestedHero />
+            </Ways>
+          </Ways>
+        </React.Suspense>
+      </Ways>
+    );
+
+    expect(screen.getByTestId('outer-shell')).toHaveTextContent('Outer shell');
+    expect(screen.queryByTestId('nested-hero')).not.toBeInTheDocument();
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(screen.getByTestId('outer-shell')).toHaveTextContent('Outer shell');
+    expect(screen.getByTestId('nested-hero')).toHaveTextContent('Hero anidado');
+  });
+
   it('should handle context with baseLocale override', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
@@ -160,8 +205,8 @@ describe('WaysRoot - Context Nesting', () => {
     });
 
     render(
-      <Ways apiKey="test-api-key" locale="fr-FR" baseLocale="fr-FR">
-        <Ways context="test" baseLocale="en-US" locale="es-ES">
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="fr-FR">
+        <Ways context="test" baseLocale="en-US">
           <T>Test</T>
         </Ways>
       </Ways>
@@ -182,26 +227,84 @@ describe('WaysRoot - Context Nesting', () => {
       { origin: undefined }
     );
   });
+
+  it('supports a nested WaysRoot with its own selected locale session', async () => {
+    vi.mocked(fetchTranslations).mockImplementation(async (entries) => ({
+      data: entries.map((entry) => ({
+        locale: entry.targetLocale,
+        key: entry.key,
+        textHash: entry.textHash,
+        translation:
+          entry.targetLocale === 'es-ES'
+            ? entry.text === 'Inner hello'
+              ? 'Hola interior'
+              : 'Hola'
+            : entry.text === 'Outer hello'
+              ? 'Bonjour extérieur'
+              : 'Bonjour',
+      })),
+      errors: [],
+    }));
+
+    render(
+      <Ways apiKey="test-api-key" locale="fr-FR" baseLocale="en-US">
+        <Ways context="outer">
+          <div data-testid="outer-copy">
+            <T>Outer hello</T>
+          </div>
+        </Ways>
+
+        <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US" persistLocaleCookie={false}>
+          <Ways context="inner">
+            <div data-testid="inner-copy">
+              <T>Inner hello</T>
+            </div>
+          </Ways>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(screen.getByTestId('outer-copy')).toHaveTextContent('Bonjour extérieur');
+    expect(screen.getByTestId('inner-copy')).toHaveTextContent('Hola interior');
+
+    const fetchTranslationsMock = fetchTranslations as unknown as {
+      mock: {
+        calls: Array<[Array<{ targetLocale: string }>]>;
+      };
+    };
+    const requestedLocales = fetchTranslationsMock.mock.calls.flatMap(([entries]) =>
+      entries.map((entry) => entry.targetLocale)
+    );
+
+    expect(requestedLocales).toEqual(expect.arrayContaining(['fr-FR', 'es-ES']));
+  });
+
   it('attaches a context fingerprint and metadata to translation requests', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
 
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="cta">
-          <main id="shell" className="layout" data-testid="shell-root">
-            <section id="hero" aria-label="hero area">
-              <div className="wrapper">
-                <div>
-                  <div role="group">
-                    <button>
-                      <T context="button-label">Open</T>
-                    </button>
+        <React.Suspense fallback={null}>
+          <Ways context="cta">
+            <main id="shell" className="layout" data-testid="shell-root">
+              <section id="hero" aria-label="hero area">
+                <div className="wrapper">
+                  <div>
+                    <div role="group">
+                      <button>
+                        <T context="button-label">Open</T>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
-          </main>
-        </Ways>
+              </section>
+            </main>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -236,7 +339,7 @@ describe('WaysRoot - Context Nesting', () => {
     const DirectT: React.FC = () => {
       const t = useT();
       return (
-        <a data-testid="direct-link">
+        <a href="https://example.com/open" data-testid="direct-link">
           {t('Open', {
             context: {
               name: 'leaf',
@@ -251,13 +354,15 @@ describe('WaysRoot - Context Nesting', () => {
 
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context={{ name: 'root', description: 'root context' }}>
-          <Ways context={{ name: 'nav', description: 'nav context' }}>
-            <div id="nav">
-              <DirectT />
-            </div>
+        <React.Suspense fallback={null}>
+          <Ways context={{ name: 'root', description: 'root context' }}>
+            <Ways context={{ name: 'nav', description: 'nav context' }}>
+              <div id="nav">
+                <DirectT />
+              </div>
+            </Ways>
           </Ways>
-        </Ways>
+        </React.Suspense>
       </Ways>
     );
 

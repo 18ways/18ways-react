@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { startTransition, useState } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import { Ways, T, useCurrentLocale, useSetCurrentLocale } from '../index';
@@ -27,10 +27,20 @@ const LocaleTestApp = () => {
 
   return (
     <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
-      <button onClick={() => setLocale('es-ES')}>Switch locale</button>
-      <Ways context="key-1">
-        <T>Hello</T>
-      </Ways>
+      <React.Suspense fallback={null}>
+        <button
+          onClick={() => {
+            startTransition(() => {
+              setLocale('es-ES');
+            });
+          }}
+        >
+          Switch locale
+        </button>
+        <Ways context="key-1">
+          <T>Hello</T>
+        </Ways>
+      </React.Suspense>
     </Ways>
   );
 };
@@ -49,10 +59,19 @@ const ManualLocaleControl = () => {
 
 describe('WaysRoot - Locale Changes', () => {
   beforeEach(() => {
-    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
-      'en-GB': {
-        'key-1': {
-          '["Hello","key-1"]': 'Hello',
+    window.__18WAYS_TRANSLATION_STORE__ = {
+      translations: {
+        'en-GB': {
+          'key-1': {
+            '["Hello","key-1"]': 'Hello',
+          },
+        },
+      },
+      config: {
+        acceptedLocales: [],
+        translationFallback: {
+          default: 'source',
+          overrides: [],
         },
       },
     };
@@ -87,16 +106,30 @@ describe('WaysRoot - Locale Changes', () => {
     expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES', {
       origin: undefined,
     });
-    const seedOrder = vi.mocked(fetchSeed).mock.invocationCallOrder[0];
-    const switchTranslateOrder = vi
-      .mocked(fetchTranslations)
-      .mock.calls.findIndex((calls) =>
-        calls[0]?.some((entry) => entry.targetLocale === 'es-ES' && entry.baseLocale !== 'es-ES')
-      );
+    const fetchSeedMock = fetchSeed as unknown as {
+      mock: { invocationCallOrder: number[] };
+    };
+    const fetchTranslationsMock = fetchTranslations as unknown as {
+      mock: {
+        calls: Array<
+          [
+            Array<{
+              targetLocale: string;
+              baseLocale?: string;
+            }>,
+          ]
+        >;
+        invocationCallOrder: number[];
+      };
+    };
+    const seedOrder = fetchSeedMock.mock.invocationCallOrder[0];
+    const switchTranslateOrder = fetchTranslationsMock.mock.calls.findIndex((calls) =>
+      calls[0]?.some((entry) => entry.targetLocale === 'es-ES' && entry.baseLocale !== 'es-ES')
+    );
 
     expect(switchTranslateOrder).toBeGreaterThanOrEqual(0);
     expect(seedOrder).toBeLessThan(
-      vi.mocked(fetchTranslations).mock.invocationCallOrder[switchTranslateOrder]
+      fetchTranslationsMock.mock.invocationCallOrder[switchTranslateOrder]
     );
   });
 
@@ -120,10 +153,12 @@ describe('WaysRoot - Locale Changes', () => {
 
     const { rerender } = render(
       <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
-        <Ways context="key-1">
-          <PersistentChild />
-          <T>Hello</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="key-1">
+            <PersistentChild />
+            <T>Hello</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 
@@ -132,10 +167,12 @@ describe('WaysRoot - Locale Changes', () => {
 
     rerender(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-GB">
-        <Ways context="key-1">
-          <PersistentChild />
-          <T>Hello</T>
-        </Ways>
+        <React.Suspense fallback={null}>
+          <Ways context="key-1">
+            <PersistentChild />
+            <T>Hello</T>
+          </Ways>
+        </React.Suspense>
       </Ways>
     );
 

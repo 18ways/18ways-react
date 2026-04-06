@@ -64,12 +64,18 @@ export function renderWithWays(
     if (effectiveContext) {
       return (
         <Ways {...waysProps}>
-          <Ways context={effectiveContext}>{children}</Ways>
+          <React.Suspense fallback={null}>
+            <Ways context={effectiveContext}>{children}</Ways>
+          </React.Suspense>
         </Ways>
       );
     }
 
-    return <Ways {...waysProps}>{children}</Ways>;
+    return (
+      <Ways {...waysProps}>
+        <React.Suspense fallback={null}>{children}</React.Suspense>
+      </Ways>
+    );
   };
 
   return render(ui, { wrapper: Wrapper });
@@ -80,9 +86,7 @@ export function renderWithWays(
  */
 export function clearWaysState() {
   resetTestRuntimeState();
-  delete window.__18WAYS_ACCEPTED_LOCALES__;
-  delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
-  delete window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__;
+  delete window.__18WAYS_TRANSLATION_STORE__;
   vi.clearAllMocks();
 }
 
@@ -103,29 +107,6 @@ export function createMockTranslation(
     textHash,
     translation,
   };
-}
-
-/**
- * Setup common mocks for testing
- */
-export function setupCommonMocks() {
-  vi.mock('@18ways/core/common', async () => {
-    const actual = await vi.importActual('@18ways/core/common');
-    return {
-      ...actual,
-      fetchAcceptedLocales: vi.fn(async (fallbackLocale?: string) => [fallbackLocale || 'en-GB']),
-      fetchConfig: vi.fn(async () => ({
-        languages: [],
-        total: 0,
-        translationFallback: { default: 'source', overrides: [] },
-      })),
-      fetchKnown: vi.fn().mockResolvedValue({ data: [], errors: [] }),
-      fetchKnownContext: vi.fn().mockResolvedValue({ data: [], errors: [] }),
-      fetchSeed: vi.fn(),
-      fetchTranslations: vi.fn(),
-      generateHashId: vi.fn((x) => JSON.stringify(x)),
-    };
-  });
 }
 
 /**

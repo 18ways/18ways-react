@@ -59,17 +59,19 @@ const DynamicGreeting = () => {
 
 const renderSnapshotRuntime = () =>
   render(
-    <Ways
-      apiKey="test-api-key"
-      locale="es-ES"
-      baseLocale="en-US"
-      acceptedLocales={['en-US', 'es-ES']}
-      _apiUrl="https://example.test/api"
-    >
-      <Ways context="test-key">
-        <DynamicGreeting />
+    <React.Suspense fallback={null}>
+      <Ways
+        apiKey="test-api-key"
+        locale="es-ES"
+        baseLocale="en-US"
+        acceptedLocales={['en-US', 'es-ES']}
+        _apiUrl="https://example.test/api"
+      >
+        <Ways context="test-key">
+          <DynamicGreeting />
+        </Ways>
       </Ways>
-    </Ways>
+    </React.Suspense>
   );
 
 const translationResponse = () =>
@@ -123,9 +125,7 @@ const clearQueueWithFakeTimers = async () => {
 describe('DOM snapshot runtime', () => {
   beforeEach(() => {
     resetTestRuntimeState();
-    delete window.__18WAYS_ACCEPTED_LOCALES__;
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
-    delete window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
   });
 
@@ -353,19 +353,21 @@ describe('DOM snapshot runtime', () => {
     }) as typeof fetch;
 
     render(
-      <Ways
-        apiKey="pk_dummy_demo_token"
-        locale="en-US-x-caesar"
-        baseLocale="en-US"
-        acceptedLocales={['en-US', 'en-US-x-caesar']}
-        _apiUrl="https://example.test/api"
-      >
-        <Ways context="test-key">
-          <span data-testid="demo-greeting">
-            <T>Hello</T>
-          </span>
+      <React.Suspense fallback={null}>
+        <Ways
+          apiKey="pk_dummy_demo_token"
+          locale="en-US-x-caesar"
+          baseLocale="en-US"
+          acceptedLocales={['en-US', 'en-US-x-caesar']}
+          _apiUrl="https://example.test/api"
+        >
+          <Ways context="test-key">
+            <span data-testid="demo-greeting">
+              <T>Hello</T>
+            </span>
+          </Ways>
         </Ways>
-      </Ways>
+      </React.Suspense>
     );
 
     await act(async () => {

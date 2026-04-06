@@ -26,20 +26,28 @@ vi.mock('@18ways/core/common', async () => {
 describe('DOM snapshot translation infection', () => {
   beforeEach(() => {
     resetTestRuntimeState();
-    delete window.__18WAYS_ACCEPTED_LOCALES__;
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
     vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
   });
 
   it('infects and restores only the targeted translation identity', () => {
-    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
-      'es-ES': {
-        'cta.primary': {
-          '["Open","cta.primary"]': 'Abrir',
+    window.__18WAYS_TRANSLATION_STORE__ = {
+      translations: {
+        'es-ES': {
+          'cta.primary': {
+            '["Open","cta.primary"]': 'Abrir',
+          },
+          'cta.secondary': {
+            '["Open","cta.secondary"]': 'Abrir',
+          },
         },
-        'cta.secondary': {
-          '["Open","cta.secondary"]': 'Abrir',
+      },
+      config: {
+        acceptedLocales: [],
+        translationFallback: {
+          default: 'source',
+          overrides: [],
         },
       },
     };

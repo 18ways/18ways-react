@@ -18,7 +18,7 @@
     "outDir": "dist",
     "target": "es2019"
   },
-  "include": ["**/*.ts", "**/*.tsx"],
+  "include": ["**/*.ts", "**/*.tsx", "**/*.d.ts"],
   "exclude": [
     "node_modules",
     "dist",

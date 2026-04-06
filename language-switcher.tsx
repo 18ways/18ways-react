@@ -1,6 +1,14 @@
 'use client';
 
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, {
+  startTransition,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { getDemoLanguageInfo, type Language } from '@18ways/core/common';
 import { readCookieFromDocument, writeCookieToDocument } from '@18ways/core/cookie-utils';
 import { canonicalizeLocale, WAYS_LOCALE_COOKIE_NAME } from '@18ways/core/i18n-shared';
@@ -24,10 +32,10 @@ const joinClassNames = (
 };
 
 const LOCALE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
-// Wait long enough for locale change re-renders to enqueue translation work
-// before deciding there was no loading phase to observe.
-const CHANGE_SETTLE_TIMEOUT_MS = 1000;
-const CHANGE_HARD_TIMEOUT_MS = 10000;
+// Keep the trigger in a pending state for a short time if the store never
+// reports loading, but never longer than this UX cap.
+const MAX_LANGUAGE_CHANGE_PENDING_MS = 3000;
+const NO_LOADING_SETTLE_TIMEOUT_MS = 1;
 const ENHANCED_SWITCHER_MIN_LANGUAGE_COUNT = 5;
 const SEARCH_TOKEN_SEPARATOR = /[\s/(),._-]+/;
 
@@ -602,11 +610,13 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hardStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const observedTranslationLoadingRef = useRef(false);
 
   const currentLocale = controlledLocale ?? rootLocale ?? uncontrolledLocale;
+  const isAwaitingRootLocaleSync = Boolean(
+    hasRootStore && controlledLocale && rootLocale && !areSameLocale(controlledLocale, rootLocale)
+  );
   const searchEnabled = languages.length >= ENHANCED_SWITCHER_MIN_LANGUAGE_COUNT;
   const resolvedPreferredLocales = useMemo(
     () =>
@@ -722,15 +732,13 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
     [indexedLanguageSections]
   );
 
-  const clearChangeTimers = useCallback(() => {
-    if (settleTimerRef.current) {
-      clearTimeout(settleTimerRef.current);
-      settleTimerRef.current = null;
+  const clearPendingChangeTimeout = useCallback(() => {
+    if (!pendingChangeTimeoutRef.current) {
+      return;
     }
-    if (hardStopTimerRef.current) {
-      clearTimeout(hardStopTimerRef.current);
-      hardStopTimerRef.current = null;
-    }
+
+    clearTimeout(pendingChangeTimeoutRef.current);
+    pendingChangeTimeoutRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -771,28 +779,50 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
 
   useEffect(() => {
     if (!isChanging) {
+      clearPendingChangeTimeout();
+      observedTranslationLoadingRef.current = false;
       return;
     }
 
-    if (isTranslationLoading) {
+    if (isTranslationLoading || isAwaitingRootLocaleSync) {
+      if (!observedTranslationLoadingRef.current) {
+        clearPendingChangeTimeout();
+      }
       observedTranslationLoadingRef.current = true;
+    }
+
+    if (
+      observedTranslationLoadingRef.current &&
+      !isTranslationLoading &&
+      !isAwaitingRootLocaleSync
+    ) {
+      clearPendingChangeTimeout();
+      observedTranslationLoadingRef.current = false;
+      setIsChanging(false);
       return;
     }
 
-    if (!observedTranslationLoadingRef.current) {
+    if (pendingChangeTimeoutRef.current) {
       return;
     }
 
-    clearChangeTimers();
-    observedTranslationLoadingRef.current = false;
-    setIsChanging(false);
-  }, [clearChangeTimers, isChanging, isTranslationLoading]);
+    pendingChangeTimeoutRef.current = setTimeout(
+      () => {
+        clearPendingChangeTimeout();
+        observedTranslationLoadingRef.current = false;
+        setIsChanging(false);
+      },
+      observedTranslationLoadingRef.current
+        ? MAX_LANGUAGE_CHANGE_PENDING_MS
+        : NO_LOADING_SETTLE_TIMEOUT_MS
+    );
+  }, [clearPendingChangeTimeout, isAwaitingRootLocaleSync, isChanging, isTranslationLoading]);
 
   useEffect(() => {
     return () => {
-      clearChangeTimers();
+      clearPendingChangeTimeout();
     };
-  }, [clearChangeTimers]);
+  }, [clearPendingChangeTimeout]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -808,14 +838,12 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
           return selectedIndex >= 0 ? selectedIndex : 0;
         })();
     setActiveIndex(nextIndex);
-    requestAnimationFrame(() => {
-      if (searchEnabled) {
-        searchInputRef.current?.focus();
-      } else {
-        listboxRef.current?.focus();
-      }
-    });
-  }, [currentLocale, isOpen, searchEnabled, visibleLanguages]);
+    if (searchEnabled) {
+      searchInputRef.current?.focus();
+    } else {
+      listboxRef.current?.focus();
+    }
+  }, [currentLocale, isOpen, searchEnabled, searchQuery, visibleLanguages]);
 
   useEffect(() => {
     setHoveredOptionCode(null);
@@ -859,7 +887,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         return;
       }
 
-      clearChangeTimers();
+      clearPendingChangeTimeout();
       observedTranslationLoadingRef.current = false;
       setIsChanging(true);
       setIsOpen(false);
@@ -867,27 +895,14 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
       setSearchQuery('');
       setHoveredOptionCode(null);
 
-      applyLocale(newLocale);
+      startTransition(() => {
+        applyLocale(newLocale);
+      });
       if (persistLocaleCookie) {
         setLocaleCookie(newLocale);
       }
-
-      settleTimerRef.current = setTimeout(() => {
-        if (observedTranslationLoadingRef.current) {
-          return;
-        }
-
-        clearChangeTimers();
-        setIsChanging(false);
-      }, CHANGE_SETTLE_TIMEOUT_MS);
-
-      hardStopTimerRef.current = setTimeout(() => {
-        clearChangeTimers();
-        observedTranslationLoadingRef.current = false;
-        setIsChanging(false);
-      }, CHANGE_HARD_TIMEOUT_MS);
     },
-    [applyLocale, clearChangeTimers, currentLocale, persistLocaleCookie]
+    [applyLocale, clearPendingChangeTimeout, currentLocale, persistLocaleCookie]
   );
 
   const commitByIndex = useCallback(
@@ -935,7 +950,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   );
 
   const handleButtonKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (isChanging) {
+    if (isChanging || isTranslationLoading) {
       return;
     }
 
@@ -1089,6 +1104,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   const searchLabel = internalT(currentLocale, 'searchAvailableLanguages');
   const searchPlaceholder = internalT(currentLocale, 'searchLanguagesPlaceholder');
   const noMatchingLanguagesLabel = internalT(currentLocale, 'noMatchingLanguages');
+  const isLocaleChangePending = isChanging || isTranslationLoading;
   const activeOptionId =
     activeIndex >= 0 && activeIndex < visibleLanguages.length
       ? optionIdFor(listboxId, visibleLanguages[activeIndex].code)
@@ -1112,22 +1128,24 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         <button
           ref={buttonRef}
           type="button"
-          onClick={() => !isChanging && setIsOpen(!isOpen)}
+          onClick={() => !isLocaleChangePending && setIsOpen(!isOpen)}
           onMouseEnter={() => setIsTriggerHovered(true)}
           onMouseLeave={() => setIsTriggerHovered(false)}
           onKeyDown={handleButtonKeyDown}
-          disabled={isChanging}
+          disabled={isLocaleChangePending}
           className={joinClassNames(
             classNames?.button,
-            isTriggerHovered && !isChanging ? classNames?.buttonHover : undefined,
-            isChanging ? classNames?.buttonChanging : undefined
+            isTriggerHovered && !isLocaleChangePending ? classNames?.buttonHover : undefined,
+            isLocaleChangePending ? classNames?.buttonChanging : undefined
           )}
           style={mergeStyle(
             'button',
             styles,
             unstyled,
-            isTriggerHovered && !isChanging ? mergeStyle('buttonHover', styles, unstyled) : null,
-            isChanging ? mergeStyle('buttonChanging', styles, unstyled) : null
+            isTriggerHovered && !isLocaleChangePending
+              ? mergeStyle('buttonHover', styles, unstyled)
+              : null,
+            isLocaleChangePending ? mergeStyle('buttonChanging', styles, unstyled) : null
           )}
           aria-label={internalT(currentLocale, 'selectLanguageCurrent', {
             name: currentLocaleName,
@@ -1135,10 +1153,10 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           aria-controls={listboxId}
-          aria-busy={isChanging}
+          aria-busy={isLocaleChangePending}
         >
           <div className={classNames?.content} style={mergeStyle('content', styles, unstyled)}>
-            {isChanging ? (
+            {isLocaleChangePending ? (
               <>
                 <SpinnerIcon
                   className={classNames?.spinnerIcon}
@@ -1164,7 +1182,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
               </>
             )}
           </div>
-          {!isChanging && (
+          {!isLocaleChangePending && (
             <ChevronIcon
               isOpen={isOpen}
               className={classNames?.chevron}
@@ -1179,10 +1197,10 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
           aria-live="polite"
           aria-atomic="true"
         >
-          {isChanging ? changingLanguageLabel : ''}
+          {isLocaleChangePending ? changingLanguageLabel : ''}
         </div>
 
-        {isOpen && !isChanging && (
+        {isOpen && !isLocaleChangePending && (
           <div className={classNames?.menu} style={menuStyle}>
             <div className={classNames?.menuCard} style={mergeStyle('menuCard', styles, unstyled)}>
               {searchEnabled && (
@@ -1193,7 +1211,6 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
                   <input
                     ref={searchInputRef}
                     type="search"
-                    autoFocus
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     onKeyDown={handleSearchKeyDown}

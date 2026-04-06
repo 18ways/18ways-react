@@ -32,9 +32,7 @@ vi.mock('@18ways/core/common', async () => {
 describe('WaysRoot - Seed call behavior', () => {
   beforeEach(() => {
     resetTestRuntimeState();
-    delete window.__18WAYS_ACCEPTED_LOCALES__;
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
-    delete window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
   });
 
@@ -85,7 +83,7 @@ describe('WaysRoot - Seed call behavior', () => {
     expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
   });
 
-  it('calls seed on client render for nested contexts when locale differs', async () => {
+  it('does not seed nested contexts until they mount a translated entry', async () => {
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-GB">
         <Ways context="key-1">
@@ -95,9 +93,7 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
-      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES', {
-        origin: undefined,
-      });
+      expect(vi.mocked(fetchSeed)).not.toHaveBeenCalled();
     });
   });
 
@@ -133,8 +129,11 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
-      expect(fetchConfig).toHaveBeenCalledWith();
-      expect(window.__18WAYS_ACCEPTED_LOCALES__).toEqual(['en-GB', 'es-ES']);
+      expect(fetchConfig).toHaveBeenCalledWith({ origin: undefined });
+      expect(window.__18WAYS_TRANSLATION_STORE__?.config.acceptedLocales).toEqual([
+        'en-GB',
+        'es-ES',
+      ]);
     });
   });
 
@@ -151,7 +150,11 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
-      expect(window.__18WAYS_ACCEPTED_LOCALES__).toEqual(['en-US', 'es-ES', 'ja-JP']);
+      expect(window.__18WAYS_TRANSLATION_STORE__?.config.acceptedLocales).toEqual([
+        'en-US',
+        'es-ES',
+        'ja-JP',
+      ]);
     });
   });
 });

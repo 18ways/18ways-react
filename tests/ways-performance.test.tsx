@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { Ways, T } from '../index';
@@ -23,14 +23,9 @@ vi.mock('@18ways/core/common', async () => {
   };
 });
 
-const DynamicContent = ({ count }: { count: number }) => {
-  const items = Array.from({ length: count }, (_, i) => <T key={i}>Item {i}</T>);
-  return <>{items}</>;
-};
-
 describe('WaysRoot - Performance and Caching', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
     vi.useRealTimers();
@@ -124,10 +119,19 @@ describe('WaysRoot - Performance and Caching', () => {
   });
 
   it('should use memory cache for already translated content', async () => {
-    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
-      'es-ES': {
-        'test-key': {
-          '["Cached","test-key"]': 'En caché',
+    window.__18WAYS_TRANSLATION_STORE__ = {
+      translations: {
+        'es-ES': {
+          'test-key': {
+            '["Cached","test-key"]': 'En caché',
+          },
+        },
+      },
+      config: {
+        acceptedLocales: [],
+        translationFallback: {
+          default: 'source',
+          overrides: [],
         },
       },
     };

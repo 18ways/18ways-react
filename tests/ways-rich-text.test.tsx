@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { Ways, T } from '../index';
 import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { clearQueueForTests } from '../testing';
@@ -58,7 +58,7 @@ const Pill = ({
 
 describe('WaysRoot - Rich Text', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });
@@ -82,7 +82,7 @@ describe('WaysRoot - Rich Text', () => {
     render(
       <RichTestWrapper context="rich-key">
         <T>
-          If you want to <a href="/docs">click here</a> then you will see more
+          If you want to <a href="https://example.com/docs">click here</a> then you will see more
         </T>
       </RichTestWrapper>
     );
@@ -95,7 +95,7 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('Si quieres hacer clic aquí verás más');
     expect(normalizeHtml(output.innerHTML)).toBe(
-      'Si quieres <a href="/docs">hacer clic aquí</a> verás más'
+      'Si quieres <a href="https://example.com/docs">hacer clic aquí</a> verás más'
     );
     expectSingleTranslationRequest(sourceText);
   });
@@ -118,7 +118,7 @@ describe('WaysRoot - Rich Text', () => {
     render(
       <RichTestWrapper context="escaped-rich-key">
         <T>
-          2 {'<'} 3 and <a href="/docs">learn more</a>
+          2 {'<'} 3 and <a href="https://example.com/docs">learn more</a>
         </T>
       </RichTestWrapper>
     );
@@ -130,7 +130,9 @@ describe('WaysRoot - Rich Text', () => {
     const output = await screen.findByTestId('output');
 
     expect(output.textContent).toBe('2 < 3 and learn more');
-    expect(normalizeHtml(output.innerHTML)).toBe('2 &lt; 3 and <a href="/docs">learn more</a>');
+    expect(normalizeHtml(output.innerHTML)).toBe(
+      '2 &lt; 3 and <a href="https://example.com/docs">learn more</a>'
+    );
     expectSingleTranslationRequest(sourceText);
   });
 
@@ -227,7 +229,7 @@ describe('WaysRoot - Rich Text', () => {
     render(
       <RichTestWrapper context="reordered-two-slots">
         <T>
-          Read <a href="/docs">the docs</a> or <strong>act now</strong>.
+          Read <a href="https://example.com/docs">the docs</a> or <strong>act now</strong>.
         </T>
       </RichTestWrapper>
     );
@@ -240,7 +242,7 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('Actua ahora o lee la documentacion.');
     expect(normalizeHtml(output.innerHTML)).toBe(
-      '<strong>Actua ahora</strong> o lee <a href="/docs">la documentacion</a>.'
+      '<strong>Actua ahora</strong> o lee <a href="https://example.com/docs">la documentacion</a>.'
     );
     expectSingleTranslationRequest(sourceText);
   });
@@ -265,7 +267,7 @@ describe('WaysRoot - Rich Text', () => {
       <RichTestWrapper context="nested-and-sibling-slots">
         <T>
           <b>
-            <a href="/open">Open</a>
+            <a href="https://example.com/open">Open</a>
           </b>{' '}
           and <span className="badge">New badge</span>
         </T>
@@ -280,7 +282,7 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('Insignia nueva: Abrir');
     expect(normalizeHtml(output.innerHTML)).toBe(
-      '<span class="badge">Insignia nueva</span>: <b><a href="/open">Abrir</a></b>'
+      '<span class="badge">Insignia nueva</span>: <b><a href="https://example.com/open">Abrir</a></b>'
     );
     expectSingleTranslationRequest(sourceText);
   });
@@ -304,7 +306,7 @@ describe('WaysRoot - Rich Text', () => {
     render(
       <RichTestWrapper context="custom-component-slot">
         <T components={{ pill: Pill }}>
-          <Pill>New</Pill> <a href="/launch">launch notes</a>
+          <Pill>New</Pill> <a href="https://example.com/launch">launch notes</a>
         </T>
       </RichTestWrapper>
     );
@@ -317,7 +319,7 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('notas del lanzamiento Novedad');
     expect(normalizeHtml(output.innerHTML)).toBe(
-      '<a href="/launch">notas del lanzamiento</a> <span class="pill" data-kind="pill">Novedad</span>'
+      '<a href="https://example.com/launch">notas del lanzamiento</a> <span class="pill" data-kind="pill">Novedad</span>'
     );
     expectSingleTranslationRequest(sourceText);
   });
@@ -341,7 +343,7 @@ describe('WaysRoot - Rich Text', () => {
     render(
       <RichTestWrapper context="custom-component-without-alias">
         <T>
-          <Pill>New</Pill> <a href="/launch">launch notes</a>
+          <Pill>New</Pill> <a href="https://example.com/launch">launch notes</a>
         </T>
       </RichTestWrapper>
     );
@@ -354,7 +356,7 @@ describe('WaysRoot - Rich Text', () => {
 
     expect(output.textContent).toBe('notas del lanzamiento Novedad');
     expect(normalizeHtml(output.innerHTML)).toBe(
-      '<a href="/launch">notas del lanzamiento</a> <span class="pill" data-kind="pill">Novedad</span>'
+      '<a href="https://example.com/launch">notas del lanzamiento</a> <span class="pill" data-kind="pill">Novedad</span>'
     );
     expectSingleTranslationRequest(sourceText);
   });

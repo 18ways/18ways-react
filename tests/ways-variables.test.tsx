@@ -25,7 +25,7 @@ vi.mock('@18ways/core/common', async () => {
 
 describe('WaysRoot - Variable Substitution', () => {
   beforeEach(() => {
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });

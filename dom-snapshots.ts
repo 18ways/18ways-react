@@ -1,4 +1,5 @@
 import {
+  clearRuntimeNetworkEventsForTesting,
   isDemoApiKey,
   subscribeRuntimeNetworkEvents,
   type RuntimeNetworkEvent,
@@ -345,7 +346,9 @@ class DomSnapshotRuntime {
   }
 
   start = (): void => {
-    this.unsubscribeNetwork = subscribeRuntimeNetworkEvents(this.onNetworkEvent);
+    this.unsubscribeNetwork = subscribeRuntimeNetworkEvents(this.onNetworkEvent, {
+      replayBuffered: true,
+    });
     if (typeof MutationObserver === 'function') {
       this.mutationObserver = new MutationObserver(() => {
         if (this.ignoreMutations || !this.translationIdsToCapture.size) {
@@ -933,6 +936,7 @@ if (isTestEnvironment()) {
   registerRuntimeResetFn(() => {
     domSnapshotRuntime?.stop();
     domSnapshotRuntime = null;
+    clearRuntimeNetworkEventsForTesting();
     renderedTranslationsByIdentity.clear();
     temporaryOverridesByIdentity.clear();
     overrideListeners.clear();

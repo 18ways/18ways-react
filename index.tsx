@@ -1,18 +1,15 @@
-/// <reference path="./global.d.ts" />
-
 'use client';
 
 import React, {
   type DependencyList,
+  startTransition,
   useRef,
-  useState,
   useEffect,
   useContext,
   useCallback,
   useMemo,
   useSyncExternalStore,
   createContext,
-  Suspense,
   ReactNode,
 } from 'react';
 import { XMLParser } from 'fast-xml-parser';
@@ -22,16 +19,12 @@ import {
   type TranslationFallbackConfig,
   getInMemoryTranslations,
   getWindowTranslationFallbackConfig,
+  mergeWindowTranslationStoreHydrationPayload,
   type _RequestInitDecorator,
-  fetchConfig,
-  fetchKnown,
   resolveAcceptedLocales,
-  resolveTranslationFallbackMode,
   resetServerInMemoryTranslations,
-  fetchSeed,
   generateHashId,
   DEFAULT_TRANSLATION_FALLBACK_CONFIG,
-  buildTranslationFallbackValue,
   type TranslationContextInput,
   type TranslationContextInputObject,
   type TranslationContextValue,
@@ -41,19 +34,17 @@ import {
 import { parseRichTextMarkupAgainstSource } from '@18ways/core/rich-text';
 import { InjectTranslations } from './inject';
 import { formatWaysParser, isRuntimeOnlyWaysMessage } from '@18ways/core/parsers/ways-parser';
-import { TranslationStore, type TranslationStoreSnapshot } from '@18ways/core/translation-store';
+import { TranslationStore } from '@18ways/core/translation-store';
 import { registerQueueClearFn } from './testing';
 import { registerRuntimeResetFn } from './testing';
 import { isTestEnvironment } from './runtime-env';
 import { readAcceptedLocalesFromWindow } from '@18ways/core/client-accepted-locales';
-import { decryptTranslationValue } from '@18ways/core/crypto';
 import {
   InternalLanguageSwitcher,
   type LanguageSwitcherClassNameOverrides,
   type LanguageSwitcherProps,
   type LanguageSwitcherStyleOverrides,
 } from './language-switcher';
-import { deepMerged } from '@18ways/core/object-utils';
 import { canonicalizeLocale, localeToFlagEmoji } from '@18ways/core/i18n-shared';
 import { create18waysEngine, type WaysEngine } from '@18ways/core/engine';
 import { extractTranslationMessage, renderRichTextValue } from './rich-text';
@@ -77,25 +68,7 @@ export type MessageFormatterFn = (params: {
 export type MessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 type ResolvedMessageFormatter = 'none' | 'waysParser' | MessageFormatterFn;
 
-const parsePositiveInt = (rawValue: string | undefined, fallback: number): number => {
-  if (!rawValue) {
-    return fallback;
-  }
-
-  const parsed = Number.parseInt(rawValue, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return parsed;
-};
-
-const DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
-  process.env.NEXT_PUBLIC_18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS ||
-    process.env['18WAYS_INITIAL_TRANSLATION_TIMEOUT_MS'],
-  3000
-);
-const CONTEXT_TRANSLATION_GC_DELAY_MS = 5 * 60 * 1000;
+const DEFAULT_SUSPENSE_TIMEOUT_MS = 3000;
 
 const localeCodeListsEqual = (left: string[], right: string[]): boolean =>
   left.length === right.length && left.every((locale, index) => locale === right[index]);
@@ -116,6 +89,8 @@ type RuntimeConfigServerResolution =
   | {
       status: 'pending';
       promise: Promise<void>;
+      startedAt: number;
+      timeoutMs: number;
     }
   | {
       status: 'resolved';
@@ -142,6 +117,8 @@ const getAcceptedLocalesFunctionId = (value: object | undefined): number => {
   return acceptedLocalesFunctionIdCounter;
 };
 
+type WaysRootSnapshot = Pick<TranslationStoreState, 'locale' | 'config'>;
+
 const buildRuntimeConfigServerResolutionKey = (input: {
   apiKey: string;
   _apiUrl?: string;
@@ -159,29 +136,10 @@ const buildRuntimeConfigServerResolutionKey = (input: {
     requestInitDecoratorId: getAcceptedLocalesFunctionId(input.requestInitDecorator),
   });
 
-let transitionFallbackLocaleSingleton: string | null = null;
-const mountedContextCountsSingleton = new Map<string, number>();
-const contextGcTimeoutsSingleton = new Map<string, number>();
-
-const readTransitionFallbackLocale = (): string | null => transitionFallbackLocaleSingleton;
-
-const writeTransitionFallbackLocale = (locale: string | null): void => {
-  transitionFallbackLocaleSingleton = locale || null;
-};
-
-const cancelContextGc = (contextKey: string): void => {
-  if (typeof window === 'undefined' || !contextKey) {
-    return;
-  }
-
-  const timeoutId = contextGcTimeoutsSingleton.get(contextKey);
-  if (!timeoutId) {
-    return;
-  }
-
-  clearTimeout(timeoutId);
-  contextGcTimeoutsSingleton.delete(contextKey);
-};
+const createSuspenseTimeoutPromise = (timeoutMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, timeoutMs);
+  });
 
 const buildLanguagesFromLocaleCodes = (localeCodes: string[]): Language[] =>
   localeCodes.map((code) => {
@@ -243,31 +201,13 @@ const logDemoModeLocaleChange = (input: {
   console.groupEnd();
 };
 
-interface TranslateTextParams {
-  baseLocale?: string;
-  targetLocale: string;
-  text: string;
-}
-
-interface ContextualTranslateTextParams extends TranslateTextParams {
-  key: string;
-  textHash: string;
-  contextFingerprint?: string;
-  contextMetadata?: TranslationContextValue;
-}
-
-type SeedPromiseLookup = (contextKey: string, targetLocale: string) => Promise<void> | null;
-type SeedPromiseEnsure = (contextKey: string, targetLocale: string) => Promise<void> | null;
+type TranslationStoreState = ReturnType<TranslationStore['getState']>;
+type TranslationStoreMountEntry = Parameters<TranslationStore['mount']>[0];
 
 interface ContextType {
   store: TranslationStore;
   contextKey: string;
   contextMetadata: TranslationContextValue;
-  queueTranslation: (entry: ContextualTranslateTextParams) => boolean;
-  getFallbackLocale: () => string;
-  getPendingSeedPromise: SeedPromiseLookup;
-  hasPendingClientLocaleTransition: boolean;
-  translationFallbackConfig: TranslationFallbackConfig;
   baseLocale?: string;
   targetLocale: string;
   components?: ComponentsMap;
@@ -275,7 +215,6 @@ interface ContextType {
 }
 
 const Context = createContext<ContextType | undefined>(undefined);
-const SuspenseFallbackContext = createContext<boolean>(false);
 
 const WaysContextPathContext = createContext<string>('root');
 const DEFAULT_CONTEXT_VALUE: TranslationContextValue = {
@@ -340,26 +279,6 @@ const mergeContextValues = (
   };
 };
 
-const warnedInitialRenderTimeouts = new Set<string>();
-const warnedSuspenseFallbacks = new Set<string>();
-const seedLookupKey = (contextKey: string, targetLocale: string): string =>
-  `${contextKey}::${targetLocale}`;
-
-const hasCachedSeedForContext = (contextKey: string, targetLocale: string): boolean => {
-  if (!contextKey || !targetLocale) {
-    return false;
-  }
-
-  const inMemoryTranslations = getInMemoryTranslations();
-  const localeTranslations = inMemoryTranslations[targetLocale];
-  return Boolean(
-    localeTranslations &&
-      typeof localeTranslations === 'object' &&
-      !Array.isArray(localeTranslations) &&
-      contextKey in localeTranslations
-  );
-};
-
 export interface WaysRootProps {
   apiKey: string;
   locale?: string;
@@ -373,7 +292,7 @@ export interface WaysRootProps {
   _apiUrl?: string;
   /** @internal Adapter-only fetch init hook. */
   _requestInitDecorator?: _RequestInitDecorator;
-  serverInitialTranslationTimeoutMs?: number;
+  suspenseTimeoutMs?: number;
   // Used on SSR to forward the page origin to server-side API calls.
   requestOrigin?: string;
   // Used on SSR to inject accepted locales into window during hydration.
@@ -396,195 +315,51 @@ const isRootWaysProps = (props: WaysProps): props is WaysRootProps => 'apiKey' i
 const isScopeWaysProps = (props: WaysProps): props is WaysScopeProps =>
   'context' in props && !('apiKey' in props);
 
-const seedContextTranslationsBatch = async (
-  contextKeys: string[],
-  targetLocale: string,
-  requestOrigin?: string
-): Promise<void> => {
-  if (typeof window !== 'undefined') {
-    if (!window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
-      window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
-    }
-  }
-
-  if (!contextKeys.length) {
-    return;
-  }
-
-  const seedResult = await fetchSeed(contextKeys, targetLocale, { origin: requestOrigin });
-  if (!seedResult?.data || typeof seedResult.data !== 'object' || Array.isArray(seedResult.data)) {
-    return;
-  }
-
-  const inMemoryTranslations = getInMemoryTranslations();
-  const existingForLocale = (inMemoryTranslations[targetLocale] as Translations) || {};
-  inMemoryTranslations[targetLocale] = deepMerged(existingForLocale, seedResult.data);
-};
-
-interface InitialRenderBlockerProps {
-  shouldBlockInitialRender: boolean;
-  store: TranslationStore;
-  contextKey: string;
-  pendingSeedPromise: Promise<void> | null;
-  initialRenderPromiseRef: React.MutableRefObject<Promise<void> | null>;
-  hasCompletedInitialRenderBlockRef: React.MutableRefObject<boolean>;
-  serverInitialTranslationTimeoutMs: number;
-}
-
-const InitialRenderBlocker: React.FC<InitialRenderBlockerProps> = ({
-  shouldBlockInitialRender,
-  store,
-  contextKey,
-  pendingSeedPromise,
-  initialRenderPromiseRef,
-  hasCompletedInitialRenderBlockRef,
-  serverInitialTranslationTimeoutMs,
-}) => {
-  if (hasCompletedInitialRenderBlockRef.current) {
-    return null;
-  }
-
-  if (!shouldBlockInitialRender) {
-    hasCompletedInitialRenderBlockRef.current = true;
-    return null;
-  }
-
-  const hasPendingStoreWork =
-    store.hasPendingRequestsForKey(contextKey) || store.hasInFlightRequestsForKey(contextKey);
-  const hasPendingSeed = Boolean(pendingSeedPromise);
-
-  if (!hasPendingStoreWork && !hasPendingSeed) {
-    hasCompletedInitialRenderBlockRef.current = true;
-    return null;
-  }
-
-  if (!initialRenderPromiseRef.current) {
-    const ensurePromise =
-      pendingSeedPromise || Promise.resolve().then(() => store.waitForIdleForKey(contextKey));
-    const waitStartedAt = Date.now();
-    let didTimeout = false;
-    const runtime = typeof window === 'undefined' ? 'server' : 'client';
-    const timeoutKey = `${runtime}:${contextKey}`;
-    const timeoutActive = !hasPendingSeed;
-
-    const blockingPromise =
-      typeof window === 'undefined'
-        ? !timeoutActive
-          ? ensurePromise
-          : Promise.race([
-              ensurePromise,
-              new Promise<void>((resolve) => {
-                setTimeout(() => {
-                  didTimeout = true;
-                  resolve();
-                }, serverInitialTranslationTimeoutMs);
-              }),
-            ])
-        : ensurePromise;
-
-    initialRenderPromiseRef.current = blockingPromise.finally(() => {
-      if (didTimeout && !warnedInitialRenderTimeouts.has(timeoutKey)) {
-        warnedInitialRenderTimeouts.add(timeoutKey);
-        const elapsedMs = Date.now() - waitStartedAt;
-        console.warn(
-          `[18ways] Initial render blocker timed out after ${serverInitialTranslationTimeoutMs}ms`,
-          {
-            contextKey,
-            hasPending: store.hasPendingRequestsForKey(contextKey),
-            hasInFlight: store.hasInFlightRequestsForKey(contextKey),
-            elapsedMs,
-          }
-        );
-      }
-      hasCompletedInitialRenderBlockRef.current = true;
-      initialRenderPromiseRef.current = null;
-    });
-  }
-
-  const pendingPromise = initialRenderPromiseRef.current;
-  if (pendingPromise) {
-    throw pendingPromise;
-  }
-
-  hasCompletedInitialRenderBlockRef.current = true;
-  return null;
-};
-
-const SuspenseFallback: React.FC<{
-  contextKey: string;
-  children: ReactNode;
-}> = ({ contextKey, children }) => {
-  const runtime = typeof window === 'undefined' ? 'server' : 'client';
-  const fallbackKey = `${runtime}:${contextKey}`;
-  if (!warnedSuspenseFallbacks.has(fallbackKey)) {
-    warnedSuspenseFallbacks.add(fallbackKey);
-    console.warn('[18ways] Suspense fallback rendered while waiting for translations', {
-      contextKey,
-      runtime,
-    });
-  }
-  return (
-    <SuspenseFallbackContext.Provider value={true}>{children}</SuspenseFallbackContext.Provider>
-  );
-};
-
 type WaysRootContextType = {
   engine: WaysEngine | null;
+  setLocale: (locale: string) => void;
   targetLocale: string;
-  transitionFallbackLocale: string | null;
   defaultLocale: string;
   baseLocale?: string;
   persistLocaleCookie: boolean;
   acceptedLocales: string[];
   translationFallbackConfig: TranslationFallbackConfig;
   messageFormatter: ResolvedMessageFormatter;
-  serverInitialTranslationTimeoutMs: number;
-  setTargetLocale: (targetLocale: string) => void;
-  getPendingSeedPromise: SeedPromiseLookup;
-  ensureSeedPromise: SeedPromiseEnsure;
-  completedTranslations: Translations;
-  setCompletedTranslations: (keyPath: string[], translation: string) => void;
+  suspenseTimeoutMs: number;
   store: TranslationStore;
 };
 
 const emptyStore = new TranslationStore({
+  baseLocale: 'en-GB',
+  locale: 'en-GB',
   translations: {},
   fetchKnown: async () => ({ data: [], errors: [] }),
+  fetchSeed: async () => ({ data: {} }),
+  fetchConfig: async () => ({
+    languages: [],
+    total: 0,
+    translationFallback: DEFAULT_TRANSLATION_FALLBACK_CONFIG,
+  }),
   fetchTranslations: async () => ({ data: [], errors: [] }),
 });
 
 if (isTestEnvironment()) {
   registerRuntimeResetFn(() => {
-    transitionFallbackLocaleSingleton = null;
-    mountedContextCountsSingleton.clear();
     runtimeConfigServerResolutionsSingleton.clear();
-    contextGcTimeoutsSingleton.forEach((timeoutId) => {
-      clearTimeout(timeoutId);
-    });
-    contextGcTimeoutsSingleton.clear();
   });
 }
 
 const WaysRootContext = createContext<WaysRootContextType>({
   engine: null,
+  setLocale: () => {},
   targetLocale: 'en-GB',
-  transitionFallbackLocale: null,
   defaultLocale: 'en-GB',
   baseLocale: undefined,
   persistLocaleCookie: true,
   acceptedLocales: [],
   translationFallbackConfig: DEFAULT_TRANSLATION_FALLBACK_CONFIG,
   messageFormatter: 'waysParser',
-  serverInitialTranslationTimeoutMs: DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS,
-  setTargetLocale: () => {
-    throw new Error('The root component has not been initialised');
-  },
-  getPendingSeedPromise: () => null,
-  ensureSeedPromise: () => null,
-  completedTranslations: {},
-  setCompletedTranslations: () => {
-    throw new Error('The root component has not been initialised');
-  },
+  suspenseTimeoutMs: DEFAULT_SUSPENSE_TIMEOUT_MS,
   store: emptyStore,
 });
 
@@ -603,8 +378,7 @@ const WaysRoot: React.FC<{
   requestInitDecorator?: _RequestInitDecorator;
   acceptedLocales?: string[];
   messageFormatter?: MessageFormatter;
-  serverInitialTranslationTimeoutMs?: number;
-  rootContextKey?: string;
+  suspenseTimeoutMs?: number;
 }> = ({
   children,
   engine,
@@ -620,19 +394,48 @@ const WaysRoot: React.FC<{
   requestInitDecorator,
   acceptedLocales = [],
   messageFormatter = 'waysParser',
-  serverInitialTranslationTimeoutMs = DEFAULT_SERVER_INITIAL_TRANSLATION_TIMEOUT_MS,
-  rootContextKey,
+  suspenseTimeoutMs = DEFAULT_SUSPENSE_TIMEOUT_MS,
 }) => {
+  const store = engine.getStore();
+  const rootSnapshotRef = useRef<{
+    key: string;
+    snapshot: WaysRootSnapshot;
+  } | null>(null);
+  const getRootSnapshot = useCallback((): WaysRootSnapshot => {
+    const state = store.getState();
+    const snapshotKey = JSON.stringify({
+      locale: state.locale,
+      config: {
+        status: state.config.status,
+        acceptedLocales: state.config.acceptedLocales,
+        translationFallback: state.config.translationFallback,
+      },
+    });
+    const existingSnapshot = rootSnapshotRef.current;
+    if (existingSnapshot?.key === snapshotKey) {
+      return existingSnapshot.snapshot;
+    }
+
+    const nextSnapshot: WaysRootSnapshot = {
+      locale: state.locale,
+      config: state.config,
+    };
+    rootSnapshotRef.current = {
+      key: snapshotKey,
+      snapshot: nextSnapshot,
+    };
+    return nextSnapshot;
+  }, [store]);
+  const initialStoreConfig = store.getState().config;
   const resolvedBaseLocale = canonicalizeLocale(baseLocale || defaultLocale);
   const acceptedLocalesFromProps = useMemo(
     () => resolveAcceptedLocales(undefined, acceptedLocales),
     [acceptedLocales]
   );
-  const [runtimeAcceptedLocales, setRuntimeAcceptedLocales] = useState<string[]>([]);
-  const [runtimeTranslationFallbackConfig, setRuntimeTranslationFallbackConfig] =
-    useState<TranslationFallbackConfig>(DEFAULT_TRANSLATION_FALLBACK_CONFIG);
-  const acceptedLocalesFromWindow = readAcceptedLocalesFromWindow();
-  const translationFallbackConfigFromWindow = getWindowTranslationFallbackConfig();
+  const acceptedLocalesFromWindow =
+    initialStoreConfig.status === 'empty' ? readAcceptedLocalesFromWindow() : [];
+  const translationFallbackConfigFromWindow =
+    initialStoreConfig.status === 'empty' ? getWindowTranslationFallbackConfig() : null;
   const acceptedLocalesFromWindowKey = acceptedLocalesFromWindow.join(',');
   const translationFallbackConfigFromWindowKey = JSON.stringify(
     translationFallbackConfigFromWindow || DEFAULT_TRANSLATION_FALLBACK_CONFIG
@@ -650,97 +453,55 @@ const WaysRoot: React.FC<{
   const runtimeConfigServerResolution = runtimeConfigServerResolutionKey
     ? runtimeConfigServerResolutionsSingleton.get(runtimeConfigServerResolutionKey)
     : undefined;
+  const hasTimedOutRuntimeConfigResolution =
+    runtimeConfigServerResolution?.status === 'pending' &&
+    Date.now() - runtimeConfigServerResolution.startedAt >= runtimeConfigServerResolution.timeoutMs;
 
-  if (typeof window === 'undefined' && runtimeConfigServerResolutionKey) {
+  const hasStaticConfigOverride =
+    acceptedLocalesFromProps.length > 0 ||
+    acceptedLocalesFromWindow.length > 0 ||
+    Boolean(translationFallbackConfigFromWindow);
+
+  if (
+    typeof window === 'undefined' &&
+    runtimeConfigServerResolutionKey &&
+    !hasStaticConfigOverride
+  ) {
     if (!runtimeConfigServerResolution) {
-      const runtimeConfigPromise = fetchConfig({ origin: requestOrigin }).then((config) => {
-        runtimeConfigServerResolutionsSingleton.set(runtimeConfigServerResolutionKey, {
-          status: 'resolved',
-          locales: resolveAcceptedLocales(
-            resolvedBaseLocale || defaultLocale,
-            config.languages.map((language) => language.code)
-          ),
-          translationFallback: config.translationFallback,
+      const startedAt = Date.now();
+      const runtimeConfigPromise = store
+        .loadConfig()
+        .then((config) => {
+          runtimeConfigServerResolutionsSingleton.set(runtimeConfigServerResolutionKey, {
+            status: 'resolved',
+            locales: resolveAcceptedLocales(
+              resolvedBaseLocale || defaultLocale,
+              config.acceptedLocales
+            ),
+            translationFallback: config.translationFallback,
+          });
+        })
+        .catch((error) => {
+          runtimeConfigServerResolutionsSingleton.delete(runtimeConfigServerResolutionKey);
+          console.error('[18ways] Failed to fetch runtime config during SSR:', error);
         });
-      });
+      const timeoutPromise = createSuspenseTimeoutPromise(suspenseTimeoutMs);
+      const blockingPromise = Promise.race([runtimeConfigPromise, timeoutPromise]).then(
+        () => undefined
+      );
       runtimeConfigServerResolutionsSingleton.set(runtimeConfigServerResolutionKey, {
         status: 'pending',
-        promise: runtimeConfigPromise,
+        promise: blockingPromise,
+        startedAt,
+        timeoutMs: suspenseTimeoutMs,
       });
-      throw runtimeConfigPromise;
+      throw blockingPromise;
     }
 
-    if (runtimeConfigServerResolution.status === 'pending') {
+    if (runtimeConfigServerResolution.status === 'pending' && !hasTimedOutRuntimeConfigResolution) {
       throw runtimeConfigServerResolution.promise;
     }
   }
-
-  useEffect(() => {
-    if (acceptedLocalesFromWindow.length > 0) {
-      setRuntimeAcceptedLocales((previousLocales) =>
-        localeCodeListsEqual(previousLocales, acceptedLocalesFromWindow)
-          ? previousLocales
-          : acceptedLocalesFromWindow
-      );
-    }
-
-    if (translationFallbackConfigFromWindow) {
-      setRuntimeTranslationFallbackConfig((previousConfig) =>
-        translationFallbackConfigsEqual(previousConfig, translationFallbackConfigFromWindow)
-          ? previousConfig
-          : translationFallbackConfigFromWindow
-      );
-    }
-
-    if (acceptedLocalesFromWindow.length > 0 && translationFallbackConfigFromWindow) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void fetchConfig()
-      .then((config) => {
-        if (cancelled) {
-          return;
-        }
-
-        const normalizedFetchedLocales = resolveAcceptedLocales(
-          resolvedBaseLocale || defaultLocale,
-          config.languages.map((language) => language.code)
-        );
-        setRuntimeAcceptedLocales((previousLocales) =>
-          localeCodeListsEqual(previousLocales, normalizedFetchedLocales)
-            ? previousLocales
-            : normalizedFetchedLocales
-        );
-        setRuntimeTranslationFallbackConfig((previousConfig) =>
-          translationFallbackConfigsEqual(previousConfig, config.translationFallback)
-            ? previousConfig
-            : config.translationFallback
-        );
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.error('[18ways] Failed to fetch runtime config:', error);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    apiKey,
-    _apiUrl,
-    acceptedLocalesFromWindowKey,
-    cacheTtl,
-    defaultLocale,
-    fetcher,
-    acceptedLocalesFromProps,
-    requestInitDecorator,
-    requestOrigin,
-    resolvedBaseLocale,
-    translationFallbackConfigFromWindowKey,
-  ]);
 
   const fallbackLocale = resolvedBaseLocale || canonicalizeLocale(defaultLocale);
   const acceptedLocalesFromServer =
@@ -750,61 +511,98 @@ const WaysRoot: React.FC<{
   const translationFallbackConfigFromServer =
     runtimeConfigServerResolution?.status === 'resolved'
       ? runtimeConfigServerResolution.translationFallback
-      : DEFAULT_TRANSLATION_FALLBACK_CONFIG;
+      : null;
   const fallbackAcceptedLocales = fallbackLocale ? [fallbackLocale] : [];
-  const normalizedAcceptedLocales =
+  const staticAcceptedLocales =
     acceptedLocalesFromProps.length > 0
       ? resolveAcceptedLocales(resolvedBaseLocale, acceptedLocalesFromProps)
       : resolveAcceptedLocales(
           resolvedBaseLocale,
           acceptedLocalesFromWindow,
           acceptedLocalesFromServer,
-          runtimeAcceptedLocales,
           fallbackAcceptedLocales
         );
-  const hasResolvedAcceptedLocales =
+  const hasResolvedStaticConfig =
     acceptedLocalesFromProps.length > 0 ||
     acceptedLocalesFromWindow.length > 0 ||
     acceptedLocalesFromServer.length > 0 ||
-    runtimeAcceptedLocales.length > 0;
-  const resolvedTranslationFallbackConfig =
+    Boolean(translationFallbackConfigFromWindow) ||
+    Boolean(translationFallbackConfigFromServer);
+  const staticTranslationFallbackConfig =
     translationFallbackConfigFromWindow ||
-    (runtimeConfigServerResolution?.status === 'resolved'
-      ? translationFallbackConfigFromServer
-      : runtimeTranslationFallbackConfig);
+    translationFallbackConfigFromServer ||
+    DEFAULT_TRANSLATION_FALLBACK_CONFIG;
 
-  if (typeof window !== 'undefined') {
-    if (!window.__18WAYS_IN_MEMORY_TRANSLATIONS__) {
-      window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {};
-    }
-  }
-  if (
-    typeof window !== 'undefined' &&
-    hasResolvedAcceptedLocales &&
-    normalizedAcceptedLocales.length > 0
-  ) {
-    window.__18WAYS_ACCEPTED_LOCALES__ = normalizedAcceptedLocales;
-  }
-  if (typeof window !== 'undefined') {
-    window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = resolvedTranslationFallbackConfig;
-  }
-
-  const store = engine.getStore();
-  const serverIdlePromiseRef = useRef<Promise<void> | null>(null);
-  const pendingSeedPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
-  const pendingSeedResolversRef = useRef<Map<string, () => void>>(new Map());
-  const seededContextsRef = useRef<Set<string>>(new Set());
-  const queuedSeedContextsByLocaleRef = useRef<Map<string, Set<string>>>(new Map());
-  const isSeedFlushScheduledRef = useRef(false);
-  const previousTargetLocaleRef = useRef(defaultLocale);
   const previousLoggedDemoLocaleRef = useRef<string | null>(null);
+  const shouldHydrateInitialStoreConfig =
+    hasResolvedStaticConfig &&
+    (!localeCodeListsEqual(initialStoreConfig.acceptedLocales, staticAcceptedLocales) ||
+      !translationFallbackConfigsEqual(
+        initialStoreConfig.translationFallback,
+        staticTranslationFallbackConfig
+      ) ||
+      initialStoreConfig.status !== 'ready');
 
-  const [targetLocale, setTargetLocale] = useState(defaultLocale);
-  const [transitionFallbackLocale, setTransitionFallbackLocale] = useState<string | null>(() => {
-    const fallbackLocale = readTransitionFallbackLocale();
-    return fallbackLocale && fallbackLocale !== defaultLocale ? fallbackLocale : null;
-  });
-  const [seedResolutionVersion, setSeedResolutionVersion] = useState(0);
+  if (typeof window === 'undefined' && shouldHydrateInitialStoreConfig) {
+    store.hydrate({
+      config: {
+        acceptedLocales: staticAcceptedLocales,
+        translationFallback: staticTranslationFallbackConfig,
+      },
+    });
+  }
+
+  const rootSnapshot = useSyncExternalStore(store.subscribe, getRootSnapshot, getRootSnapshot);
+  const targetLocale = rootSnapshot.locale.selected;
+  const acceptedLocalesFromStore =
+    rootSnapshot.config.status === 'ready'
+      ? resolveAcceptedLocales(
+          resolvedBaseLocale,
+          rootSnapshot.config.acceptedLocales,
+          fallbackAcceptedLocales
+        )
+      : staticAcceptedLocales;
+  const translationFallbackConfigFromStore =
+    rootSnapshot.config.status === 'ready'
+      ? rootSnapshot.config.translationFallback
+      : staticTranslationFallbackConfig;
+
+  useEffect(() => {
+    if (shouldHydrateInitialStoreConfig) {
+      store.hydrate({
+        config: {
+          acceptedLocales: staticAcceptedLocales,
+          translationFallback: staticTranslationFallbackConfig,
+        },
+      });
+      return;
+    }
+
+    if (store.getState().config.status !== 'empty') {
+      return;
+    }
+
+    let cancelled = false;
+
+    void store.loadConfig().catch((error) => {
+      if (!cancelled) {
+        console.error('[18ways] Failed to fetch runtime config:', error);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    acceptedLocalesFromWindowKey,
+    hasResolvedStaticConfig,
+    requestOrigin,
+    store,
+    staticAcceptedLocales,
+    staticTranslationFallbackConfig,
+    shouldHydrateInitialStoreConfig,
+    translationFallbackConfigFromWindowKey,
+  ]);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -813,8 +611,17 @@ const WaysRoot: React.FC<{
   }, [targetLocale]);
 
   useEffect(() => {
-    engine.setLocale(targetLocale);
-  }, [engine, targetLocale]);
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const syncWindowStore = () => {
+      mergeWindowTranslationStoreHydrationPayload(store.dehydrate());
+    };
+
+    syncWindowStore();
+    return store.subscribe(syncWindowStore);
+  }, [store]);
 
   useEffect(() => {
     if (!isDemoApiKey(apiKey)) {
@@ -840,224 +647,39 @@ const WaysRoot: React.FC<{
       apiUrl: _apiUrl,
       requestOrigin,
       requestInitDecorator,
-      getTargetLocale: () => targetLocale,
+      getTargetLocale: () => store.getState().locale.selected,
       getBaseLocale: () => canonicalizeLocale(baseLocale || defaultLocale),
     });
-  }, [
-    apiKey,
-    _apiUrl,
-    requestOrigin,
-    requestInitDecorator,
-    targetLocale,
-    baseLocale,
-    defaultLocale,
-  ]);
+  }, [apiKey, _apiUrl, requestOrigin, requestInitDecorator, store, baseLocale, defaultLocale]);
 
   useEffect(() => {
     if (!locale) {
       return;
     }
 
-    setTargetLocale((previousLocale) => (previousLocale === locale ? previousLocale : locale));
-  }, [locale]);
-
-  const snapshot = useSyncExternalStore(
-    store.subscribeToTranslations,
-    store.getTranslationsSnapshot,
-    store.getTranslationsSnapshot
-  );
-  const loadingSnapshot = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-    store.getSnapshot
-  );
-  const completedTranslations =
-    typeof window === 'undefined'
-      ? store.getTranslationsSnapshot().translations
-      : snapshot.translations;
-
-  const setCompletedTranslations = useCallback(
-    (keyPath: string[], translation: string) => {
-      store.setCompletedTranslation(keyPath, translation);
-    },
-    [store]
-  );
-
-  const getPendingSeedPromise = useCallback<SeedPromiseLookup>((contextKey, targetLocale) => {
-    return pendingSeedPromisesRef.current.get(seedLookupKey(contextKey, targetLocale)) || null;
-  }, []);
-
-  const resolveSeedPromiseFor = useCallback((contextKey: string, targetLocale: string) => {
-    const key = seedLookupKey(contextKey, targetLocale);
-    const resolve = pendingSeedResolversRef.current.get(key);
-    if (resolve) {
-      resolve();
-      pendingSeedResolversRef.current.delete(key);
-    }
-    pendingSeedPromisesRef.current.delete(key);
-  }, []);
-
-  const flushQueuedSeedBatches = useCallback(async () => {
-    const batches = Array.from(queuedSeedContextsByLocaleRef.current.entries()).map(
-      ([locale, contextKeys]) => [locale, Array.from(contextKeys)] as const
-    );
-    queuedSeedContextsByLocaleRef.current.clear();
-
-    await Promise.all(
-      batches.map(async ([locale, contextKeys]) => {
-        try {
-          await seedContextTranslationsBatch(contextKeys, locale, requestOrigin);
-        } catch (error) {
-          console.error('[18ways] Failed to seed initial context translations:', error);
-        } finally {
-          contextKeys.forEach((contextKey) => {
-            resolveSeedPromiseFor(contextKey, locale);
-          });
-          if (typeof window !== 'undefined') {
-            setSeedResolutionVersion((version) => version + 1);
-          }
-        }
-      })
-    );
-  }, [resolveSeedPromiseFor]);
-
-  const waitForPendingSeedWork = useCallback(async () => {
-    while (true) {
-      if (isSeedFlushScheduledRef.current) {
-        isSeedFlushScheduledRef.current = false;
-        await flushQueuedSeedBatches();
-        continue;
-      }
-
-      const pending = Array.from(pendingSeedPromisesRef.current.values());
-      if (!pending.length) {
-        return;
-      }
-
-      await Promise.all(pending);
-    }
-  }, [flushQueuedSeedBatches]);
-
-  const ensureSeedPromise = useCallback<SeedPromiseEnsure>(
-    (contextKey, targetLocale) => {
-      if (!contextKey || !targetLocale) {
-        return null;
-      }
-
-      const key = seedLookupKey(contextKey, targetLocale);
-      const existing = pendingSeedPromisesRef.current.get(key);
-      if (existing) {
-        return existing;
-      }
-
-      if (seededContextsRef.current.has(key)) {
-        return null;
-      }
-
-      if (hasCachedSeedForContext(contextKey, targetLocale)) {
-        seededContextsRef.current.add(key);
-        return null;
-      }
-
-      seededContextsRef.current.add(key);
-      const seedPromise = new Promise<void>((resolve) => {
-        pendingSeedResolversRef.current.set(key, resolve);
-      });
-      pendingSeedPromisesRef.current.set(key, seedPromise);
-
-      let queuedContextsForLocale = queuedSeedContextsByLocaleRef.current.get(targetLocale);
-      if (!queuedContextsForLocale) {
-        queuedContextsForLocale = new Set<string>();
-        queuedSeedContextsByLocaleRef.current.set(targetLocale, queuedContextsForLocale);
-      }
-      queuedContextsForLocale.add(contextKey);
-
-      if (!isSeedFlushScheduledRef.current) {
-        isSeedFlushScheduledRef.current = true;
-        queueMicrotask(() => {
-          isSeedFlushScheduledRef.current = false;
-          void flushQueuedSeedBatches();
-        });
-      }
-
-      return seedPromise;
-    },
-    [flushQueuedSeedBatches]
-  );
-
-  if (typeof window === 'undefined' && rootContextKey) {
-    void ensureSeedPromise(rootContextKey, defaultLocale);
-  }
-
-  const hasPendingSeedWork = useCallback(
-    () => pendingSeedPromisesRef.current.size > 0 || isSeedFlushScheduledRef.current,
-    []
-  );
-  const effectiveTransitionFallbackLocale = transitionFallbackLocale;
-
-  useEffect(() => {
-    if (previousTargetLocaleRef.current !== targetLocale) {
-      const previousLocale = previousTargetLocaleRef.current;
-      previousTargetLocaleRef.current = targetLocale;
-      setTransitionFallbackLocale(previousLocale);
-      writeTransitionFallbackLocale(previousLocale);
-    }
-  }, [targetLocale]);
-
-  useEffect(() => {
-    const hasLiveTransitionWork =
-      store.hasPendingRequests() ||
-      store.hasInFlightRequests() ||
-      pendingSeedPromisesRef.current.size > 0 ||
-      isSeedFlushScheduledRef.current;
-    if (hasLiveTransitionWork) {
-      return;
-    }
-
-    if (transitionFallbackLocale !== null) {
-      setTransitionFallbackLocale(null);
-    }
-    writeTransitionFallbackLocale(targetLocale);
-  }, [
-    loadingSnapshot.hasInFlight,
-    loadingSnapshot.hasPending,
-    seedResolutionVersion,
-    store,
-    targetLocale,
-    transitionFallbackLocale,
-  ]);
+    startTransition(() => {
+      engine.setLocale(locale);
+    });
+  }, [engine, locale]);
 
   return (
     <WaysRootContext.Provider
       value={{
         engine,
+        setLocale: engine.setLocale,
         targetLocale,
-        transitionFallbackLocale: effectiveTransitionFallbackLocale,
-        setTargetLocale,
         defaultLocale,
         baseLocale,
         persistLocaleCookie,
-        acceptedLocales: normalizedAcceptedLocales,
-        translationFallbackConfig: resolvedTranslationFallbackConfig,
+        acceptedLocales: acceptedLocalesFromStore,
+        translationFallbackConfig: translationFallbackConfigFromStore,
         messageFormatter,
-        serverInitialTranslationTimeoutMs,
-        getPendingSeedPromise,
-        ensureSeedPromise,
-        completedTranslations,
-        setCompletedTranslations,
+        suspenseTimeoutMs,
         store,
       }}
     >
       {children}
-      <InjectTranslations
-        acceptedLocales={normalizedAcceptedLocales}
-        translationFallbackConfig={resolvedTranslationFallbackConfig}
-        store={store}
-        idlePromiseRef={serverIdlePromiseRef}
-        translations={completedTranslations}
-        hasPendingSeedWork={hasPendingSeedWork}
-        waitForPendingSeedWork={waitForPendingSeedWork}
-      />
+      <InjectTranslations store={store} suspenseTimeoutMs={suspenseTimeoutMs} />
     </WaysRootContext.Provider>
   );
 };
@@ -1079,39 +701,11 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
   targetLocale: pTargetLocale,
   components,
 }) => {
-  const {
-    targetLocale: cTargetLocale,
-    baseLocale: cBaseLocale,
-    transitionFallbackLocale: rootTransitionFallbackLocale,
-    translationFallbackConfig,
-    messageFormatter,
-    serverInitialTranslationTimeoutMs,
-    store,
-    getPendingSeedPromise,
-    ensureSeedPromise,
-  } = useContext(WaysRootContext);
-
-  const targetLocale = pTargetLocale || cTargetLocale;
-  const baseLocale = pBaseLocale || cBaseLocale;
-  const initialRenderPromiseRef = useRef<Promise<void> | null>(null);
-  const hasCompletedInitialRenderBlockRef = useRef<boolean>(false);
-
-  const previousTargetLocaleRef = useRef(targetLocale);
-  const fallbackLocaleRef = useRef(targetLocale);
-
-  const shouldBlockInitialRender = Boolean(
-    baseLocale && targetLocale && baseLocale !== targetLocale
-  );
-  const hasLocaleChanged = previousTargetLocaleRef.current !== targetLocale;
-  const shouldEnsureSeedPromise = shouldBlockInitialRender && contextKey !== 'root';
-  const hasPendingClientLocaleTransition =
-    typeof window !== 'undefined' &&
-    (hasLocaleChanged ||
-      Boolean(rootTransitionFallbackLocale && rootTransitionFallbackLocale !== targetLocale));
-  const ensuredSeedPromise = shouldEnsureSeedPromise
-    ? ensureSeedPromise(contextKey, targetLocale)
-    : null;
-  const pendingSeedPromise = ensuredSeedPromise || getPendingSeedPromise(contextKey, targetLocale);
+  const rootContext = useContext(WaysRootContext);
+  const { store, messageFormatter } = rootContext;
+  const contextState = store.getState();
+  const targetLocale = pTargetLocale || contextState.locale.selected;
+  const baseLocale = pBaseLocale || rootContext.baseLocale;
 
   useEffect(() => {
     if (!baseLocale && typeof console !== 'undefined' && console.warn) {
@@ -1121,20 +715,6 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
       );
     }
   }, [baseLocale]);
-
-  useEffect(() => {
-    if (previousTargetLocaleRef.current !== targetLocale) {
-      fallbackLocaleRef.current = previousTargetLocaleRef.current;
-      previousTargetLocaleRef.current = targetLocale;
-    }
-  }, [targetLocale]);
-
-  const queueTranslation = useCallback(
-    (entry: ContextualTranslateTextParams) => {
-      return store.enqueue(entry);
-    },
-    [store]
-  );
 
   useEffect(() => {
     if (!isTestEnvironment()) {
@@ -1148,54 +728,6 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
     return registerQueueClearFn(clearQueue);
   }, [store]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !contextKey) {
-      return;
-    }
-
-    mountedContextCountsSingleton.set(
-      contextKey,
-      (mountedContextCountsSingleton.get(contextKey) || 0) + 1
-    );
-    cancelContextGc(contextKey);
-
-    return () => {
-      const currentCount = mountedContextCountsSingleton.get(contextKey) || 0;
-      if (currentCount <= 1) {
-        mountedContextCountsSingleton.delete(contextKey);
-        contextGcTimeoutsSingleton.set(
-          contextKey,
-          Number(
-            window.setTimeout(() => {
-              contextGcTimeoutsSingleton.delete(contextKey);
-              if ((mountedContextCountsSingleton.get(contextKey) || 0) > 0) {
-                return;
-              }
-              store.deleteContextTranslations(contextKey);
-            }, CONTEXT_TRANSLATION_GC_DELAY_MS)
-          )
-        );
-        return;
-      }
-
-      mountedContextCountsSingleton.set(contextKey, currentCount - 1);
-    };
-  }, [contextKey, store]);
-
-  const getFallbackLocale = useCallback(() => {
-    if (previousTargetLocaleRef.current !== targetLocale) {
-      return previousTargetLocaleRef.current;
-    }
-    if (rootTransitionFallbackLocale && rootTransitionFallbackLocale !== targetLocale) {
-      return rootTransitionFallbackLocale;
-    }
-    const globalTransitionFallbackLocale = readTransitionFallbackLocale();
-    if (globalTransitionFallbackLocale && globalTransitionFallbackLocale !== targetLocale) {
-      return globalTransitionFallbackLocale;
-    }
-    return fallbackLocaleRef.current;
-  }, [rootTransitionFallbackLocale, targetLocale]);
-
   return (
     <>
       <Context.Provider
@@ -1203,31 +735,13 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
           store,
           contextKey,
           contextMetadata,
-          queueTranslation,
-          getFallbackLocale,
-          getPendingSeedPromise,
-          hasPendingClientLocaleTransition,
-          translationFallbackConfig,
           baseLocale,
           targetLocale,
           components,
           messageFormatter,
         }}
       >
-        <Suspense
-          fallback={<SuspenseFallback contextKey={contextKey}>{children}</SuspenseFallback>}
-        >
-          {children}
-          <InitialRenderBlocker
-            shouldBlockInitialRender={shouldBlockInitialRender}
-            store={store}
-            contextKey={contextKey}
-            pendingSeedPromise={pendingSeedPromise}
-            initialRenderPromiseRef={initialRenderPromiseRef}
-            hasCompletedInitialRenderBlockRef={hasCompletedInitialRenderBlockRef}
-            serverInitialTranslationTimeoutMs={serverInitialTranslationTimeoutMs}
-          />
-        </Suspense>
+        {children}
       </Context.Provider>
     </>
   );
@@ -1255,7 +769,7 @@ export const Ways: React.FC<WaysProps> = (props) => {
       fetcher,
       _apiUrl,
       _requestInitDecorator,
-      serverInitialTranslationTimeoutMs,
+      suspenseTimeoutMs,
       requestOrigin,
       acceptedLocales,
       context,
@@ -1313,8 +827,7 @@ export const Ways: React.FC<WaysProps> = (props) => {
             requestInitDecorator={_requestInitDecorator}
             acceptedLocales={acceptedLocales}
             messageFormatter={messageFormatter}
-            serverInitialTranslationTimeoutMs={serverInitialTranslationTimeoutMs}
-            rootContextKey={rootContextKey || undefined}
+            suspenseTimeoutMs={suspenseTimeoutMs}
           >
             <WaysProvider
               contextKey={contextPath}
@@ -1499,18 +1012,22 @@ interface TFunction {
 
 const noopUnsubscribe = () => {};
 const noopSubscribe = () => noopUnsubscribe;
-const EMPTY_STORE_SNAPSHOT = {
+const EMPTY_TRANSLATION_STORE_STATE: TranslationStoreState = {
   version: 0,
+  baseLocale: 'en-GB',
   translations: {},
+  locale: {
+    selected: 'en-GB',
+    settled: null,
+  },
+  config: {
+    status: 'empty',
+    acceptedLocales: [],
+    translationFallback: DEFAULT_TRANSLATION_FALLBACK_CONFIG,
+  },
 };
-const getEmptyStoreSnapshot = () => EMPTY_STORE_SNAPSHOT;
-const EMPTY_LOADING_SNAPSHOT: TranslationStoreSnapshot = {
-  version: 0,
-  translations: {},
-  hasPending: false,
-  hasInFlight: false,
-};
-const getEmptyLoadingSnapshot = () => EMPTY_LOADING_SNAPSHOT;
+const getEmptyTranslationStoreState = () => EMPTY_TRANSLATION_STORE_STATE;
+let translationMountHookIdCounter = 0;
 
 const INLINE_ALIAS_RESERVED_KEYS = new Set(['format']);
 const INLINE_ALIAS_DATE_STYLES = new Set(['short', 'medium', 'long', 'full']);
@@ -1700,18 +1217,72 @@ export const useT = ({
 }: UseTParams = {}) => {
   const context = useContext(Context);
   const rootContext = useContext(WaysRootContext);
-  const isRenderingSuspenseFallback = useContext(SuspenseFallbackContext);
-  const missingTranslationSuspensePromisesRef = useRef<Map<string, Promise<void>>>(new Map());
-  const storeSnapshot = useSyncExternalStore(
-    context?.store ? context.store.subscribeToTranslations : noopSubscribe,
-    context?.store ? context.store.getTranslationsSnapshot : getEmptyStoreSnapshot,
-    context?.store ? context.store.getTranslationsSnapshot : getEmptyStoreSnapshot
+  const translationMountHookIdRef = useRef<string>();
+  const mountedEntriesRef = useRef<Map<string, TranslationStoreMountEntry>>(new Map());
+  const renderedEntriesRef = useRef<Map<string, TranslationStoreMountEntry>>(new Map());
+  const renderEntryCountsRef = useRef<Map<string, number>>(new Map());
+  useSyncExternalStore(
+    context?.store ? context.store.subscribe : noopSubscribe,
+    context?.store ? context.store.getState : getEmptyTranslationStoreState,
+    context?.store ? context.store.getState : getEmptyTranslationStoreState
   );
-  const domSnapshotOverrideVersion = useSyncExternalStore(
+  useSyncExternalStore(
     subscribeDomSnapshotOverrideVersion,
     getDomSnapshotOverrideVersion,
     getDomSnapshotOverrideVersion
   );
+
+  if (!translationMountHookIdRef.current) {
+    translationMountHookIdCounter += 1;
+    translationMountHookIdRef.current = `ways:t:${translationMountHookIdCounter}`;
+  }
+
+  renderedEntriesRef.current = new Map();
+  renderEntryCountsRef.current = new Map();
+
+  // Reconcile the store-owned mount registry against the entries rendered in
+  // this commit. This must run after every commit, not only once on mount.
+  useEffect(() => {
+    if (!context?.store) {
+      return;
+    }
+
+    const mountedEntries = mountedEntriesRef.current;
+    const renderedEntries = renderedEntriesRef.current;
+
+    renderedEntries.forEach((entry, instanceId) => {
+      if (mountedEntries.has(instanceId)) {
+        return;
+      }
+
+      context.store.mount(entry);
+      mountedEntries.set(instanceId, entry);
+    });
+
+    Array.from(mountedEntries.keys()).forEach((instanceId) => {
+      if (renderedEntries.has(instanceId)) {
+        return;
+      }
+
+      context.store.unmount({ instanceId });
+      mountedEntries.delete(instanceId);
+    });
+  });
+
+  useEffect(() => {
+    const mountedEntries = mountedEntriesRef.current;
+
+    return () => {
+      if (!context?.store) {
+        return;
+      }
+
+      mountedEntries.forEach((_, instanceId) => {
+        context.store.unmount({ instanceId });
+      });
+      mountedEntries.clear();
+    };
+  }, [context?.store]);
 
   const t = useCallback<TFunction>(
     ((
@@ -1719,18 +1290,13 @@ export const useT = ({
       { vars, components: tComponents, context: localContext }: TOptions = {}
     ): string | ReactNode => {
       const {
-        store,
         contextKey,
         contextMetadata,
-        queueTranslation,
-        getFallbackLocale,
-        getPendingSeedPromise,
-        hasPendingClientLocaleTransition,
-        translationFallbackConfig,
         baseLocale: cBaseLocale,
         targetLocale: cTargetLocale,
         components: cComponents,
         messageFormatter,
+        store,
       } = context || {};
 
       const baseLocale = tBaseLocale || cBaseLocale;
@@ -1756,6 +1322,7 @@ export const useT = ({
         textHash: string;
         contextFingerprint?: string;
       } | null = null;
+      let shouldRecordDomSnapshot = true;
 
       const translatedText = (() => {
         if (
@@ -1766,13 +1333,7 @@ export const useT = ({
           return sourceText;
         }
 
-        if (
-          !store ||
-          !contextKey ||
-          !queueTranslation ||
-          !getFallbackLocale ||
-          !getPendingSeedPromise
-        ) {
+        if (!store || !contextKey) {
           return sourceText;
         }
 
@@ -1795,151 +1356,67 @@ export const useT = ({
           textHash,
           contextFingerprint,
         };
-        const decryptCachedTranslation = (
-          encryptedText: string,
-          localeToDecrypt: string
-        ): string | null => {
-          try {
-            return decryptTranslationValue({
-              encryptedText,
-              sourceText,
-              locale: localeToDecrypt,
-              key: effectiveContextKey,
-              textHash,
-            });
-          } catch (error) {
-            console.error('[18ways] Failed to decrypt cached translation payload:', error);
-            return null;
-          }
-        };
-        const queuedEntry: ContextualTranslateTextParams = {
-          key: effectiveContextKey,
+
+        const entrySignature = JSON.stringify([
+          effectiveContextKey,
           textHash,
-          baseLocale,
-          targetLocale,
+          contextFingerprint,
+          sourceText,
+        ]);
+        const entryCount = (renderEntryCountsRef.current.get(entrySignature) || 0) + 1;
+        renderEntryCountsRef.current.set(entrySignature, entryCount);
+
+        const instanceId = `${translationMountHookIdRef.current}:${entrySignature}:${entryCount}`;
+        renderedEntriesRef.current.set(instanceId, {
+          instanceId,
+          contextKey: effectiveContextKey,
+          textHash,
           text: sourceText,
           contextFingerprint,
           contextMetadata: finalContextMetadata,
-        };
+        });
+        const runtimeRead = store.getTranslationSync({
+          contextKey: effectiveContextKey,
+          textHash,
+          text: sourceText,
+          baseLocale,
+          targetLocale,
+          contextFingerprint,
+          contextMetadata: finalContextMetadata,
+        });
 
-        if (baseLocale && targetLocale && baseLocale === targetLocale) {
-          if (typeof window !== 'undefined') {
-            queueTranslation(queuedEntry);
+        if (runtimeRead.status === 'pending') {
+          const localeState = store.getState().locale;
+          const shouldRenderTransitionFallback =
+            targetLocale === localeState.selected &&
+            Boolean(localeState.settled) &&
+            localeState.settled !== localeState.selected;
+
+          if (!suspend) {
+            shouldRecordDomSnapshot = false;
+            return runtimeRead.fallbackValue;
           }
-          return sourceText;
+
+          if (shouldRenderTransitionFallback) {
+            shouldRecordDomSnapshot = false;
+            return runtimeRead.fallbackValue;
+          }
+
+          const idleState = store.getIdleState({
+            timeoutMs: rootContext.suspenseTimeoutMs,
+          });
+          if (!idleState.promise || idleState.timedOut) {
+            shouldRecordDomSnapshot = false;
+            return runtimeRead.fallbackValue;
+          }
+
+          throw idleState.promise;
         }
 
-        const pendingSeedPromise = getPendingSeedPromise(effectiveContextKey, targetLocale);
-        const fallbackLocale = getFallbackLocale();
-        const noTranslationFallback = buildTranslationFallbackValue(
-          resolveTranslationFallbackMode(translationFallbackConfig, targetLocale),
-          sourceText,
-          effectiveContextKey
-        );
-        const getFallbackTranslation = (): string | null => {
-          if (!fallbackLocale || fallbackLocale === targetLocale) {
-            return null;
-          }
-
-          const fallbackVal =
-            store.getTranslation(fallbackLocale, effectiveContextKey, textHash) ||
-            (
-              (getInMemoryTranslations()[fallbackLocale] as Record<string, unknown> | undefined)?.[
-                effectiveContextKey
-              ] as Record<string, unknown> | undefined
-            )?.[textHash];
-          if (!fallbackVal) {
-            return null;
-          }
-
-          const decryptedFallback = decryptCachedTranslation(fallbackVal as string, fallbackLocale);
-          if (!decryptedFallback) {
-            return null;
-          }
-
-          return decryptedFallback;
-        };
-        const fallbackTranslation = getFallbackTranslation();
-        const shouldHoldTargetLocaleDisplay = (): boolean => {
-          if (typeof window === 'undefined' || !fallbackLocale || fallbackLocale === targetLocale) {
-            return false;
-          }
-
-          const hasContextSpecificPendingWork = Boolean(
-            pendingSeedPromise ||
-              store.hasPendingRequestsForKey(effectiveContextKey) ||
-              store.hasInFlightRequestsForKey(effectiveContextKey)
-          );
-          if (hasContextSpecificPendingWork) {
-            return true;
-          }
-
-          if (!hasPendingClientLocaleTransition) {
-            return false;
-          }
-
-          return Boolean(store.hasPendingRequests() || store.hasInFlightRequests());
-        };
-
-        if (!shouldHoldTargetLocaleDisplay()) {
-          const cachedVal = store.getTranslation(targetLocale, effectiveContextKey, textHash);
-          if (cachedVal) {
-            const decrypted = decryptCachedTranslation(cachedVal, targetLocale);
-            if (decrypted) {
-              return decrypted;
-            }
-          }
-        }
-
-        if (pendingSeedPromise) {
-          if (!suspend && typeof window !== 'undefined') {
-            return fallbackTranslation || noTranslationFallback;
-          }
-          if (shouldHoldTargetLocaleDisplay()) {
-            return fallbackTranslation || noTranslationFallback;
-          }
-          if (isRenderingSuspenseFallback) {
-            // On the server, keep suspending until seed resolves so we do not
-            // stream source-language fallback content.
-            if (typeof window === 'undefined') {
-              throw pendingSeedPromise;
-            }
-            return fallbackTranslation || noTranslationFallback;
-          }
-
-          throw pendingSeedPromise;
-        }
-
-        queueTranslation(queuedEntry);
-
-        if (shouldHoldTargetLocaleDisplay()) {
-          return fallbackTranslation || noTranslationFallback;
-        }
-
-        const shouldSuspendForMissingTranslation =
-          suspend &&
-          Boolean(baseLocale && targetLocale && baseLocale !== targetLocale) &&
-          (store.hasPendingRequestsForKey(effectiveContextKey) ||
-            store.hasInFlightRequestsForKey(effectiveContextKey)) &&
-          (!isRenderingSuspenseFallback || typeof window === 'undefined');
-
-        if (shouldSuspendForMissingTranslation) {
-          const suspenseKey = `${effectiveContextKey}:${targetLocale}`;
-          let pendingPromise = missingTranslationSuspensePromisesRef.current.get(suspenseKey);
-          if (!pendingPromise) {
-            pendingPromise = Promise.resolve()
-              .then(() => store.waitForIdleForKey(effectiveContextKey))
-              .finally(() => {
-                missingTranslationSuspensePromisesRef.current.delete(suspenseKey);
-              });
-            missingTranslationSuspensePromisesRef.current.set(suspenseKey, pendingPromise);
-          }
-          throw pendingPromise;
-        }
-        return noTranslationFallback;
+        return runtimeRead.value;
       })();
 
-      if (domSnapshotIdentity) {
+      if (domSnapshotIdentity && shouldRecordDomSnapshot) {
         recordDomSnapshotRenderedTranslation({
           ...domSnapshotIdentity,
           sourceTexts: [sourceText],
@@ -1996,14 +1473,7 @@ export const useT = ({
 
       return applyComponentsToText(components, textWithVars);
     }) as TFunction,
-    [
-      context,
-      domSnapshotOverrideVersion,
-      isRenderingSuspenseFallback,
-      storeSnapshot.version,
-      tBaseLocale,
-      tTargetLocale,
-    ]
+    [context, rootContext, suspend, tBaseLocale, tTargetLocale]
   );
 
   return t;
@@ -2015,33 +1485,40 @@ export const useTranslatedMemo = <T,>(
   options: UseTParams = {}
 ): T => {
   const t = useT(options);
-  return useMemo(() => factory(t), [t, ...deps]);
+  const memoInputsRef = useRef<Array<unknown> | null>(null);
+  const memoValueRef = useRef<T | null>(null);
+  const nextInputs = [factory, t, ...deps];
+  const shouldReuseMemo =
+    memoInputsRef.current &&
+    memoInputsRef.current.length === nextInputs.length &&
+    memoInputsRef.current.every((value, index) => Object.is(value, nextInputs[index]));
+
+  if (!shouldReuseMemo) {
+    memoInputsRef.current = nextInputs;
+    memoValueRef.current = factory(t);
+  }
+
+  return memoValueRef.current as T;
 };
 
 export const useTranslationLoading = (): boolean => {
   const context = useContext(Context);
   useSyncExternalStore(
     context?.store ? context.store.subscribe : noopSubscribe,
-    context?.store ? context.store.getSnapshot : getEmptyLoadingSnapshot,
-    context?.store ? context.store.getSnapshot : getEmptyLoadingSnapshot
+    context?.store ? context.store.getState : getEmptyTranslationStoreState,
+    context?.store ? context.store.getState : getEmptyTranslationStoreState
   );
 
   if (!context?.store || !context.contextKey) {
     return false;
   }
 
-  const hasPendingSeed = Boolean(
-    context.targetLocale &&
-      context.getPendingSeedPromise?.(context.contextKey, context.targetLocale)
-  );
-  const hasPending = context.store.hasPendingRequestsForKey(context.contextKey);
-  const hasInFlight = context.store.hasInFlightRequestsForKey(context.contextKey);
-  return hasPendingSeed || hasPending || hasInFlight;
+  return context.store.isLoading({ contextKey: context.contextKey });
 };
 
 export const useCurrentLocale = (): string => {
   const rootContext = useContext(WaysRootContext);
-  return rootContext.targetLocale || rootContext.defaultLocale || 'en-GB';
+  return rootContext.store.getState().locale.selected || rootContext.defaultLocale || 'en-GB';
 };
 
 export const useBaseLocale = (): string => {
@@ -2057,7 +1534,7 @@ export const useTargetLocale = (): string => {
     return context.targetLocale;
   }
 
-  return rootContext.targetLocale || rootContext.defaultLocale || 'en-GB';
+  return rootContext.store.getState().locale.selected || rootContext.defaultLocale || 'en-GB';
 };
 
 export const useSetCurrentLocale = (): ((nextLocale: string) => void) => {
@@ -2068,7 +1545,9 @@ export const useSetCurrentLocale = (): ((nextLocale: string) => void) => {
         return;
       }
 
-      rootContext.setTargetLocale(nextLocale);
+      startTransition(() => {
+        rootContext.setLocale(nextLocale);
+      });
     },
     [rootContext]
   );
@@ -2087,13 +1566,14 @@ export type {
 
 export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
   const rootContext = useContext(WaysRootContext);
-  const rootLoadingSnapshot = useSyncExternalStore(
+  useSyncExternalStore(
     rootContext.store !== emptyStore ? rootContext.store.subscribe : noopSubscribe,
-    rootContext.store !== emptyStore ? rootContext.store.getSnapshot : getEmptyLoadingSnapshot,
-    rootContext.store !== emptyStore ? rootContext.store.getSnapshot : getEmptyLoadingSnapshot
+    rootContext.store !== emptyStore ? rootContext.store.getState : getEmptyTranslationStoreState,
+    rootContext.store !== emptyStore ? rootContext.store.getState : getEmptyTranslationStoreState
   );
+  const rootStoreState = rootContext.store.getState();
   const currentLocale =
-    props.currentLocale || rootContext.targetLocale || rootContext.defaultLocale || 'en-GB';
+    props.currentLocale || rootStoreState.locale.selected || rootContext.defaultLocale || 'en-GB';
   const languages = useMemo(() => {
     const localeCodes = [...rootContext.acceptedLocales];
     const currentCanonical = canonicalizeLocale(currentLocale);
@@ -2107,22 +1587,26 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
 
     return buildLanguagesFromLocaleCodes(localeCodes);
   }, [currentLocale, rootContext.acceptedLocales]);
-  const hasPendingLocaleTransition = Boolean(
-    rootContext.transitionFallbackLocale &&
-      canonicalizeLocale(rootContext.transitionFallbackLocale).toLowerCase() !==
-        canonicalizeLocale(currentLocale).toLowerCase()
+  const hasPendingControlledLocaleSync = Boolean(
+    props.currentLocale &&
+      rootStoreState.locale.selected &&
+      canonicalizeLocale(props.currentLocale).toLowerCase() !==
+        canonicalizeLocale(rootStoreState.locale.selected).toLowerCase()
   );
+  const hasPendingLocaleTransition =
+    Boolean(rootStoreState.locale.settled) &&
+    rootStoreState.locale.settled !== rootStoreState.locale.selected;
   const isTranslationLoading =
-    hasPendingLocaleTransition || rootLoadingSnapshot.hasPending || rootLoadingSnapshot.hasInFlight;
+    hasPendingControlledLocaleSync || hasPendingLocaleTransition || rootContext.store.isLoading();
 
   return (
     <InternalLanguageSwitcher
       {...props}
       persistLocaleCookie={rootContext.persistLocaleCookie}
-      rootLocale={rootContext.targetLocale}
+      rootLocale={rootStoreState.locale.selected}
       hasRootStore={rootContext.store !== emptyStore}
       isTranslationLoading={isTranslationLoading}
-      onRootLocaleChange={rootContext.setTargetLocale}
+      onRootLocaleChange={rootContext.setLocale}
       languages={languages}
     />
   );

@@ -1,4 +1,6 @@
+import type {} from './global';
 import { isTestEnvironment } from './runtime-env';
+import { clearRuntimeNetworkEventsForTesting } from '@18ways/core/common';
 
 const clearQueueFns = new Set<() => Promise<void>>();
 const runtimeResetFns = new Set<() => void>();
@@ -23,10 +25,10 @@ export const resetTestRuntimeState = (): void => {
   }
 
   if (typeof window !== 'undefined') {
-    delete window.__18WAYS_ACCEPTED_LOCALES__;
-    delete window.__18WAYS_IN_MEMORY_TRANSLATIONS__;
-    delete window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__;
+    delete window.__18WAYS_TRANSLATION_STORE__;
   }
+
+  clearRuntimeNetworkEventsForTesting();
 
   runtimeResetFns.forEach((resetRuntimeState) => {
     resetRuntimeState();

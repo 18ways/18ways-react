@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { Ways, T, LanguageSwitcher } from '../index';
 import { fetchConfig, fetchKnown, fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { internalT } from '@18ways/core/internal-i18n';
 import { clearQueueForTests } from '../testing';
 
-const CHANGE_SETTLE_TIMEOUT_MS = 1000;
+const MAX_LANGUAGE_CHANGE_PENDING_MS = 3000;
 
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
@@ -44,7 +44,7 @@ const clearQueueWithFakeTimers = async () => {
   });
 };
 
-const advanceChangeTimers = async (ms = CHANGE_SETTLE_TIMEOUT_MS + 1) => {
+const advancePendingTimers = async (ms = MAX_LANGUAGE_CHANGE_PENDING_MS + 1) => {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
@@ -72,12 +72,14 @@ const AppWithLanguageSwitcher = ({
       baseLocale="en-GB"
       persistLocaleCookie={rootPersistLocaleCookie}
     >
-      <Ways context="key-1">
-        <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
-        <div data-testid="translated-text">
-          <T>Hello</T>
-        </div>
-      </Ways>
+      <React.Suspense fallback={null}>
+        <Ways context="key-1">
+          <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
+          <div data-testid="translated-text">
+            <T>Hello</T>
+          </div>
+        </Ways>
+      </React.Suspense>
     </Ways>
   );
 };
@@ -87,14 +89,16 @@ const AppWithCrossContextLanguageSwitcher = () => {
 
   return (
     <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
-      <Ways context="switcher">
-        <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
-      </Ways>
-      <Ways context="content">
-        <div data-testid="translated-text">
-          <T>Hello</T>
-        </div>
-      </Ways>
+      <React.Suspense fallback={null}>
+        <Ways context="switcher">
+          <LanguageSwitcher currentLocale={locale} onLocaleChange={setLocale} />
+        </Ways>
+        <Ways context="content">
+          <div data-testid="translated-text">
+            <T>Hello</T>
+          </div>
+        </Ways>
+      </React.Suspense>
     </Ways>
   );
 };
@@ -104,9 +108,11 @@ const AppWithDownwardLanguageSwitcher = () => {
 
   return (
     <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
-      <Ways context="key-1">
-        <LanguageSwitcher direction="down" currentLocale={locale} onLocaleChange={setLocale} />
-      </Ways>
+      <React.Suspense fallback={null}>
+        <Ways context="key-1">
+          <LanguageSwitcher direction="down" currentLocale={locale} onLocaleChange={setLocale} />
+        </Ways>
+      </React.Suspense>
     </Ways>
   );
 };
@@ -116,18 +122,20 @@ const AppWithTailwindStyleApi = () => {
 
   return (
     <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
-      <Ways context="key-1">
-        <LanguageSwitcher
-          unstyled
-          classNames={{
-            button: 'tw-trigger',
-            menu: 'tw-menu',
-            label: 'tw-label',
-          }}
-          currentLocale={locale}
-          onLocaleChange={setLocale}
-        />
-      </Ways>
+      <React.Suspense fallback={null}>
+        <Ways context="key-1">
+          <LanguageSwitcher
+            unstyled
+            classNames={{
+              button: 'tw-trigger',
+              menu: 'tw-menu',
+              label: 'tw-label',
+            }}
+            currentLocale={locale}
+            onLocaleChange={setLocale}
+          />
+        </Ways>
+      </React.Suspense>
     </Ways>
   );
 };
@@ -150,19 +158,23 @@ const AppWithSuggestedLanguageSwitcher = ({
       baseLocale="en-GB"
       acceptedLocales={acceptedLocales}
     >
-      <Ways context="key-1">
-        <LanguageSwitcher
-          currentLocale={locale}
-          onLocaleChange={setLocale}
-          preferredLocales={preferredLocales}
-        />
-      </Ways>
+      <React.Suspense fallback={null}>
+        <Ways context="key-1">
+          <LanguageSwitcher
+            currentLocale={locale}
+            onLocaleChange={setLocale}
+            preferredLocales={preferredLocales}
+          />
+        </Ways>
+      </React.Suspense>
     </Ways>
   );
 };
 
 const getTriggerButton = (): HTMLButtonElement => {
-  const button = document.querySelector('button[aria-haspopup="listbox"]');
+  const button = Array.from(document.querySelectorAll('button[aria-haspopup="listbox"]')).find(
+    (candidate) => (candidate as HTMLElement).style.display !== 'none'
+  );
   if (!button) {
     throw new Error('LanguageSwitcher trigger button not found');
   }
@@ -185,18 +197,22 @@ describe('LanguageSwitcher', () => {
   beforeEach(() => {
     vi.useRealTimers();
     document.cookie = '18ways_locale=; Max-Age=0; Path=/';
-    window.__18WAYS_ACCEPTED_LOCALES__ = ['en-GB', 'es-ES'];
-    window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = {
-      default: 'source',
-      overrides: [],
-    };
-    window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = {
-      'en-GB': {
-        'key-1': {
-          '["Hello","key-1"]': 'Hello',
+    window.__18WAYS_TRANSLATION_STORE__ = {
+      translations: {
+        'en-GB': {
+          'key-1': {
+            '["Hello","key-1"]': 'Hello',
+          },
+          content: {
+            '["Hello","content"]': 'Hello',
+          },
         },
-        content: {
-          '["Hello","content"]': 'Hello',
+      },
+      config: {
+        acceptedLocales: ['en-GB', 'es-ES'],
+        translationFallback: {
+          default: 'source',
+          overrides: [],
         },
       },
     };
@@ -240,7 +256,6 @@ describe('LanguageSwitcher', () => {
         await deferred.promise;
       });
       await clearQueueWithFakeTimers();
-      await advanceChangeTimers();
 
       expect(screen.getByTestId('translated-text')).toHaveTextContent('Hola');
       expect(getTriggerButton()).not.toBeDisabled();
@@ -264,7 +279,6 @@ describe('LanguageSwitcher', () => {
       expect(getTriggerButton()).toBeDisabled();
 
       await flushMicrotasks();
-      await advanceChangeTimers(CHANGE_SETTLE_TIMEOUT_MS + 50);
 
       expect(getTriggerButton()).toBeDisabled();
       expect(fetchTranslations).not.toHaveBeenCalled();
@@ -303,7 +317,16 @@ describe('LanguageSwitcher', () => {
 
   it('renders the demo Caesar locale with the synthetic name and flag', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
-    window.__18WAYS_ACCEPTED_LOCALES__ = ['en-GB', 'en-GB-x-caesar'];
+    window.__18WAYS_TRANSLATION_STORE__ = {
+      translations: {},
+      config: {
+        acceptedLocales: ['en-GB', 'en-GB-x-caesar'],
+        translationFallback: {
+          default: 'source',
+          overrides: [],
+        },
+      },
+    };
 
     render(<AppWithLanguageSwitcher />);
 
@@ -333,10 +356,7 @@ describe('LanguageSwitcher', () => {
     expect(document.cookie).not.toContain('18ways_locale=es-ES');
   });
 
-  it('recovers if translation loading never settles', async () => {
-    // Keep this in sync with CHANGE_HARD_TIMEOUT_MS in language-switcher.tsx.
-    const CHANGE_HARD_TIMEOUT_MS = 10000;
-
+  it('stays disabled while translation loading remains blocking', async () => {
     const deferred = createDeferred<any>();
     vi.mocked(fetchTranslations).mockReturnValue(deferred.promise);
 
@@ -349,12 +369,11 @@ describe('LanguageSwitcher', () => {
 
       expect(getTriggerButton()).toBeDisabled();
 
-      await act(async () => {
-        vi.advanceTimersByTime(CHANGE_HARD_TIMEOUT_MS + 1);
-        await Promise.resolve();
-      });
+      await flushMicrotasks();
+      await advancePendingTimers();
+      await flushMicrotasks();
 
-      expect(getTriggerButton()).not.toBeDisabled();
+      expect(getTriggerButton()).toBeDisabled();
     } finally {
       vi.useRealTimers();
     }
@@ -375,8 +394,6 @@ describe('LanguageSwitcher', () => {
 
       await flushMicrotasks();
       expect(fetchTranslations).toHaveBeenCalledTimes(1);
-
-      await advanceChangeTimers(400);
       expect(getTriggerButton()).toBeDisabled();
 
       await act(async () => {
@@ -394,7 +411,6 @@ describe('LanguageSwitcher', () => {
         await deferred.promise;
       });
       await clearQueueWithFakeTimers();
-      await advanceChangeTimers();
 
       expect(screen.getByTestId('translated-text')).toHaveTextContent('Hola');
       expect(getTriggerButton()).not.toBeDisabled();
@@ -508,7 +524,7 @@ describe('LanguageSwitcher', () => {
       fireEvent.change(searchInput, { target: { value: 'canada' } });
       fireEvent.keyDown(searchInput, { key: 'Enter' });
       await flushMicrotasks();
-      await advanceChangeTimers();
+      await clearQueueWithFakeTimers();
 
       expect(getTriggerButton()).toHaveTextContent(/français/i);
     } finally {

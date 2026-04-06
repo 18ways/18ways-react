@@ -1,69 +1,83 @@
+import type {} from './global';
 import React from 'react';
-import type { Translations, TranslationFallbackConfig } from '@18ways/core/common';
+import type { TranslationStoreHydrationPayload } from '@18ways/core/common';
 import type { TranslationStore } from '@18ways/core/translation-store';
 
 interface InjectTranslationsProps {
-  translations: Translations;
-  acceptedLocales: string[];
-  translationFallbackConfig: TranslationFallbackConfig;
-  store: TranslationStore;
-  idlePromiseRef: React.MutableRefObject<Promise<void> | null>;
-  hasPendingSeedWork: () => boolean;
-  waitForPendingSeedWork: () => Promise<void>;
+  store: Pick<TranslationStore, 'dehydrate' | 'getIdleState'>;
+  suspenseTimeoutMs: number;
 }
 
 const renderTranslationsScript = (
-  translations: Translations,
-  acceptedLocales: string[],
-  translationFallbackConfig: TranslationFallbackConfig
+  storeHydration: Required<TranslationStoreHydrationPayload>,
+  scriptId: string
 ) => (
   <script
+    id={scriptId}
+    suppressHydrationWarning
     dangerouslySetInnerHTML={{
       __html: `(() => {
-  const next = ${JSON.stringify(translations)};
-  const target = window.__18WAYS_IN_MEMORY_TRANSLATIONS__ || {};
-  for (const locale of Object.keys(next || {})) {
-    const nextLocale = next[locale] || {};
-    const targetLocale = target[locale] || {};
-    target[locale] = { ...targetLocale, ...nextLocale };
+  const next = ${JSON.stringify(storeHydration)};
+  const target = window.__18WAYS_TRANSLATION_STORE__ || {
+    translations: {},
+    config: {
+      acceptedLocales: [],
+      translationFallback: { default: 'source', overrides: [] },
+    },
+  };
+  const targetTranslations = target.translations || {};
+  const nextTranslations = next.translations || {};
+  for (const locale of Object.keys(nextTranslations || {})) {
+    const nextLocale = nextTranslations[locale] || {};
+    const targetLocale = targetTranslations[locale] || {};
+    for (const contextKey of Object.keys(nextLocale || {})) {
+      const nextContext = nextLocale[contextKey] || {};
+      const targetContext = targetLocale[contextKey] || {};
+      targetLocale[contextKey] = { ...targetContext, ...nextContext };
+    }
+    targetTranslations[locale] = targetLocale;
   }
-  window.__18WAYS_IN_MEMORY_TRANSLATIONS__ = target;
-  window.__18WAYS_ACCEPTED_LOCALES__ = ${JSON.stringify(acceptedLocales)};
-  window.__18WAYS_TRANSLATION_FALLBACK_CONFIG__ = ${JSON.stringify(translationFallbackConfig)};
+
+  const nextConfig = next.config || {};
+  const targetConfig = target.config || {
+    acceptedLocales: [],
+    translationFallback: { default: 'source', overrides: [] },
+  };
+  const acceptedLocales = Array.isArray(nextConfig.acceptedLocales)
+    ? Array.from(new Set((nextConfig.acceptedLocales || []).filter(Boolean)))
+    : targetConfig.acceptedLocales || [];
+  const existingFallback = targetConfig.translationFallback || {
+    default: 'source',
+    overrides: [],
+  };
+  const translationFallback = nextConfig.translationFallback || existingFallback;
+
+  window.__18WAYS_TRANSLATION_STORE__ = {
+    translations: targetTranslations,
+    config: {
+      acceptedLocales,
+      translationFallback,
+    },
+  };
 })();`,
     }}
   />
 );
 
-export const InjectTranslations = ({
-  translations,
-  acceptedLocales,
-  translationFallbackConfig,
-  store,
-  idlePromiseRef,
-  hasPendingSeedWork,
-  waitForPendingSeedWork,
-}: InjectTranslationsProps) => {
+export const InjectTranslations = ({ store, suspenseTimeoutMs }: InjectTranslationsProps) => {
+  const scriptId = React.useId();
+  const storeHydration = store.dehydrate();
+
   if (typeof window !== 'undefined') {
-    return null;
+    return document.getElementById(scriptId)
+      ? renderTranslationsScript(storeHydration, scriptId)
+      : null;
   }
 
-  const hasPendingStoreWork = store.hasPendingRequests() || store.hasInFlightRequests();
-  const pendingSeedWork = hasPendingSeedWork();
-  if (!hasPendingStoreWork && !pendingSeedWork) {
-    return renderTranslationsScript(translations, acceptedLocales, translationFallbackConfig);
+  const idleState = store.getIdleState({ timeoutMs: suspenseTimeoutMs });
+  if (!idleState.promise || idleState.timedOut) {
+    return renderTranslationsScript(storeHydration, scriptId);
   }
 
-  if (!idlePromiseRef.current) {
-    idlePromiseRef.current = Promise.resolve()
-      .then(async () => {
-        await store.waitForBlockingIdle();
-        await waitForPendingSeedWork();
-      })
-      .finally(() => {
-        idlePromiseRef.current = null;
-      });
-  }
-
-  throw idlePromiseRef.current;
+  throw idleState.promise;
 };
