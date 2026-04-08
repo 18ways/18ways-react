@@ -47,6 +47,7 @@ async function build() {
     --production \
     --format=esm \
     --target=node \
+    ${externalFlags.split(' ')} \
     --sourcemap=linked`;
 
   await $`rm -f ../../.cache/tsc/18ways-react.tsbuildinfo`;
