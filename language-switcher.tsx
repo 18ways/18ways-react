@@ -38,6 +38,15 @@ const MAX_LANGUAGE_CHANGE_PENDING_MS = 3000;
 const NO_LOADING_SETTLE_TIMEOUT_MS = 1;
 const ENHANCED_SWITCHER_MIN_LANGUAGE_COUNT = 5;
 const SEARCH_TOKEN_SEPARATOR = /[\s/(),._-]+/;
+type LanguageSwitcherDirection =
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'up left'
+  | 'up right'
+  | 'down left'
+  | 'down right';
 
 export interface LanguageSwitcherProps {
   className?: string;
@@ -45,7 +54,7 @@ export interface LanguageSwitcherProps {
   styles?: LanguageSwitcherStyleOverrides;
   classNames?: LanguageSwitcherClassNameOverrides;
   unstyled?: boolean;
-  direction?: 'up' | 'down';
+  direction?: LanguageSwitcherDirection;
   currentLocale?: string;
   preferredLocales?: string[];
   onLocaleChange?: (_locale: string) => void;
@@ -59,6 +68,63 @@ export interface InternalLanguageSwitcherProps extends LanguageSwitcherProps {
   onRootLocaleChange: (locale: string) => void;
   languages: Language[];
 }
+
+const resolveMenuPlacement = (
+  direction: LanguageSwitcherDirection | undefined
+): {
+  top: string;
+  bottom: string;
+  left: string | number;
+  right: string | number;
+} => {
+  switch (direction) {
+    case 'down left':
+      return {
+        top: 'calc(100% + 8px)',
+        bottom: 'auto',
+        left: 'auto',
+        right: 0,
+      };
+    case 'down':
+      return {
+        top: 'calc(100% + 8px)',
+        bottom: 'auto',
+        left: 'auto',
+        right: 0,
+      };
+    case 'down right':
+      return {
+        top: 'calc(100% + 8px)',
+        bottom: 'auto',
+        left: 0,
+        right: 'auto',
+      };
+    case 'up left':
+    case 'left':
+      return {
+        top: 'auto',
+        bottom: 'calc(100% + 8px)',
+        left: 'auto',
+        right: 0,
+      };
+    case 'up right':
+    case 'right':
+      return {
+        top: 'auto',
+        bottom: 'calc(100% + 8px)',
+        left: 0,
+        right: 'auto',
+      };
+    case 'up':
+    default:
+      return {
+        top: 'auto',
+        bottom: 'calc(100% + 8px)',
+        left: 'auto',
+        right: 0,
+      };
+  }
+};
 
 const getLocaleFromCookie = (): string | null => {
   return readCookieFromDocument(WAYS_LOCALE_COOKIE_NAME);
@@ -1109,14 +1175,14 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
     activeIndex >= 0 && activeIndex < visibleLanguages.length
       ? optionIdFor(listboxId, visibleLanguages[activeIndex].code)
       : undefined;
-  const menuStyle =
-    direction === 'down'
-      ? {
-          ...mergeStyle('menu', styles, unstyled),
-          top: 'calc(100% + 8px)',
-          bottom: 'auto',
-        }
-      : mergeStyle('menu', styles, unstyled);
+  const menuPlacement = resolveMenuPlacement(direction);
+  const menuStyle = {
+    ...mergeStyle('menu', styles, unstyled),
+    top: menuPlacement.top,
+    bottom: menuPlacement.bottom,
+    left: menuPlacement.left,
+    right: menuPlacement.right,
+  };
 
   return (
     <div className={className} style={{ ...mergeStyle('wrapper', styles, unstyled), ...style }}>

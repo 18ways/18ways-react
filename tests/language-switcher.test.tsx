@@ -117,6 +117,52 @@ const AppWithDownwardLanguageSwitcher = () => {
   );
 };
 
+const AppWithDownwardRightLanguageSwitcher = () => {
+  const [locale, setLocale] = useState('en-GB');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <React.Suspense fallback={null}>
+        <Ways context="key-1">
+          <LanguageSwitcher
+            direction="down right"
+            currentLocale={locale}
+            onLocaleChange={setLocale}
+          />
+        </Ways>
+      </React.Suspense>
+    </Ways>
+  );
+};
+
+const AppWithRightAlignedLanguageSwitcher = () => {
+  const [locale, setLocale] = useState('en-GB');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <React.Suspense fallback={null}>
+        <Ways context="key-1">
+          <LanguageSwitcher direction="right" currentLocale={locale} onLocaleChange={setLocale} />
+        </Ways>
+      </React.Suspense>
+    </Ways>
+  );
+};
+
+const AppWithLeftAlignedLanguageSwitcher = () => {
+  const [locale, setLocale] = useState('en-GB');
+
+  return (
+    <Ways apiKey="test-api-key" locale={locale} baseLocale="en-GB">
+      <React.Suspense fallback={null}>
+        <Ways context="key-1">
+          <LanguageSwitcher direction="left" currentLocale={locale} onLocaleChange={setLocale} />
+        </Ways>
+      </React.Suspense>
+    </Ways>
+  );
+};
+
 const AppWithTailwindStyleApi = () => {
   const [locale, setLocale] = useState('en-GB');
 
@@ -430,6 +476,51 @@ describe('LanguageSwitcher', () => {
     expect(menu).not.toBeNull();
     expect(menu?.style.top).toBe('calc(100% + 8px)');
     expect(menu?.style.bottom).toBe('auto');
+  });
+
+  it('supports explicit down-right placement', async () => {
+    render(<AppWithDownwardRightLanguageSwitcher />);
+
+    fireEvent.click(getTriggerButton());
+
+    const listbox = await screen.findByRole('listbox');
+    const menu = listbox.parentElement?.parentElement as HTMLDivElement | null;
+
+    expect(menu).not.toBeNull();
+    expect(menu?.style.top).toBe('calc(100% + 8px)');
+    expect(menu?.style.bottom).toBe('auto');
+    expect(menu?.style.left).toBe('0px');
+    expect(menu?.style.right).toBe('auto');
+  });
+
+  it('supports right alignment without an explicit vertical direction', async () => {
+    render(<AppWithRightAlignedLanguageSwitcher />);
+
+    fireEvent.click(getTriggerButton());
+
+    const listbox = await screen.findByRole('listbox');
+    const menu = listbox.parentElement?.parentElement as HTMLDivElement | null;
+
+    expect(menu).not.toBeNull();
+    expect(menu?.style.top).toBe('auto');
+    expect(menu?.style.bottom).toBe('calc(100% + 8px)');
+    expect(menu?.style.left).toBe('0px');
+    expect(menu?.style.right).toBe('auto');
+  });
+
+  it('supports left alignment without an explicit vertical direction', async () => {
+    render(<AppWithLeftAlignedLanguageSwitcher />);
+
+    fireEvent.click(getTriggerButton());
+
+    const listbox = await screen.findByRole('listbox');
+    const menu = listbox.parentElement?.parentElement as HTMLDivElement | null;
+
+    expect(menu).not.toBeNull();
+    expect(menu?.style.top).toBe('auto');
+    expect(menu?.style.bottom).toBe('calc(100% + 8px)');
+    expect(menu?.style.left).toBe('auto');
+    expect(menu?.style.right).toBe('0px');
   });
 
   it('supports classNames and unstyled mode for utility CSS consumers', async () => {
