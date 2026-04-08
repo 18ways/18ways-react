@@ -4,6 +4,8 @@ import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import { Ways, T, useCurrentLocale, useSetCurrentLocale } from '../index';
 import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 
+const CLIENT_REQUEST_OPTIONS = { origin: window.location.origin };
+
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
@@ -103,9 +105,7 @@ describe('WaysRoot - Locale Changes', () => {
       expect(screen.getByText('Hola')).toBeInTheDocument();
     });
 
-    expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES', {
-      origin: undefined,
-    });
+    expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['key-1'], 'es-ES', CLIENT_REQUEST_OPTIONS);
     const fetchSeedMock = fetchSeed as unknown as {
       mock: { invocationCallOrder: number[] };
     };

@@ -5,6 +5,8 @@ import { Ways, T } from '../index';
 import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { clearQueueForTests } from '../testing';
 
+const CLIENT_REQUEST_OPTIONS = { origin: window.location.origin };
+
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
@@ -78,7 +80,7 @@ describe('WaysRoot - Performance and Caching', () => {
         expect.objectContaining({ text: 'Text 2' }),
         expect.objectContaining({ text: 'Text 3' }),
       ]),
-      { origin: undefined }
+      CLIENT_REQUEST_OPTIONS
     );
   });
 
@@ -113,7 +115,7 @@ describe('WaysRoot - Performance and Caching', () => {
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ text: 'Duplicate' })]),
-      { origin: undefined }
+      CLIENT_REQUEST_OPTIONS
     );
     expect(vi.mocked(fetchTranslations).mock.calls[0][0]).toHaveLength(1);
   });

@@ -5,6 +5,8 @@ import { Ways, T } from '../index';
 import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { clearQueueForTests } from '../testing';
 
+const CLIENT_REQUEST_OPTIONS = { origin: window.location.origin };
+
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
@@ -30,7 +32,7 @@ const expectSingleTranslationRequest = (expectedText: string) => {
         text: expectedText,
       }),
     ],
-    { origin: undefined }
+    CLIENT_REQUEST_OPTIONS
   );
 };
 

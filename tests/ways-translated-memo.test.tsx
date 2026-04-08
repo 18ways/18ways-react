@@ -5,6 +5,8 @@ import { Ways, useTranslatedMemo } from '../index';
 import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { clearQueueForTests } from '../testing';
 
+const CLIENT_REQUEST_OPTIONS = { origin: window.location.origin };
+
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
@@ -165,9 +167,7 @@ describe('useTranslatedMemo', () => {
     expect(screen.getByTestId('non-suspending-memo-value').textContent).toBe('Hello!');
 
     await waitFor(() => {
-      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['memo'], 'es-ES', {
-        origin: undefined,
-      });
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['memo'], 'es-ES', CLIENT_REQUEST_OPTIONS);
       expect(screen.getByTestId('non-suspending-memo-value').textContent).toBe('Hola!');
     });
 

@@ -224,7 +224,7 @@ describe('WaysRoot - Context Nesting', () => {
           targetLocale: 'es-ES',
         }),
       ]),
-      { origin: undefined }
+      { origin: 'http://localhost:3000' }
     );
   });
 
@@ -327,7 +327,7 @@ describe('WaysRoot - Context Nesting', () => {
           }),
         }),
       ]),
-      { origin: undefined }
+      { origin: 'http://localhost:3000' }
     );
 
     expect(payload?.contextFingerprint).toBe(JSON.stringify(payload?.contextMetadata));
@@ -383,7 +383,7 @@ describe('WaysRoot - Context Nesting', () => {
           }),
         }),
       ]),
-      { origin: undefined }
+      { origin: 'http://localhost:3000' }
     );
   });
 

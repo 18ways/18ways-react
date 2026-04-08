@@ -582,4 +582,63 @@ describe('WaysRoot - Seed gating', () => {
       dom.window.close();
     }
   });
+
+  it('inherits requestOrigin for nested same-locale roots during server observation work', async () => {
+    vi.mocked(fetchKnown).mockResolvedValue({
+      data: [],
+      errors: [],
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'en-GB',
+          key: 'inner',
+          textHash: '["Hello","inner"]',
+          translation: 'Hello',
+        },
+      ],
+      errors: [],
+    });
+
+    await renderServer(
+      <Ways
+        apiKey="test-api-key"
+        locale="en-GB"
+        baseLocale="en-GB"
+        requestOrigin="https://app.example"
+      >
+        <Ways context="outer">
+          <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
+            <Ways context="inner">
+              <T>Hello</T>
+            </Ways>
+          </Ways>
+        </Ways>
+      </Ways>
+    );
+
+    await waitForCondition(() => {
+      expect(vi.mocked(fetchKnown)).toHaveBeenCalledWith(
+        [
+          {
+            targetLocale: 'en-GB',
+            key: 'inner',
+            textHash: '["Hello","inner"]',
+            contextFingerprint: expect.any(String),
+          },
+        ],
+        { origin: 'https://app.example' }
+      );
+      expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            targetLocale: 'en-GB',
+            key: 'inner',
+            textHash: '["Hello","inner"]',
+          }),
+        ],
+        { origin: 'https://app.example' }
+      );
+    });
+  });
 });

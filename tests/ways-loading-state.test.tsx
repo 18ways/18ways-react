@@ -5,6 +5,8 @@ import { Ways, T, useTranslationLoading } from '../index';
 import { fetchSeed, fetchTranslations } from '@18ways/core/common';
 import { clearQueueForTests } from '../testing';
 
+const CLIENT_REQUEST_OPTIONS = { origin: window.location.origin };
+
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
@@ -846,9 +848,11 @@ describe('useTranslationLoading', () => {
     render(<CachedLocaleReturnApp />);
 
     await waitFor(() => {
-      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(['cookie-consent'], 'fr-FR', {
-        origin: undefined,
-      });
+      expect(vi.mocked(fetchSeed)).toHaveBeenCalledWith(
+        ['cookie-consent'],
+        'fr-FR',
+        CLIENT_REQUEST_OPTIONS
+      );
     });
 
     vi.mocked(fetchSeed).mockClear();
@@ -994,9 +998,7 @@ describe('useTranslationLoading', () => {
     fireEvent.click(screen.getByText('Switch locale'));
 
     await waitFor(() => {
-      expect(fetchSeed).toHaveBeenCalledWith(['key-1'], 'ja-JP', {
-        origin: undefined,
-      });
+      expect(fetchSeed).toHaveBeenCalledWith(['key-1'], 'ja-JP', CLIENT_REQUEST_OPTIONS);
     });
 
     expect(screen.getByText('Bonjour')).toBeInTheDocument();

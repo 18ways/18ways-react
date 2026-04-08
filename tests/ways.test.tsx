@@ -12,6 +12,8 @@ import {
 } from '@18ways/core/common';
 import { resetTestRuntimeState } from '../testing';
 
+const CLIENT_REQUEST_OPTIONS = { origin: window.location.origin };
+
 vi.mock('@18ways/core/common', async () => {
   const actual = await vi.importActual('@18ways/core/common');
   return {
@@ -129,7 +131,7 @@ describe('WaysRoot - Seed call behavior', () => {
     );
 
     await waitFor(() => {
-      expect(fetchConfig).toHaveBeenCalledWith({ origin: undefined });
+      expect(fetchConfig).toHaveBeenCalledWith(CLIENT_REQUEST_OPTIONS);
       expect(window.__18WAYS_TRANSLATION_STORE__?.config.acceptedLocales).toEqual([
         'en-GB',
         'es-ES',

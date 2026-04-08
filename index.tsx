@@ -321,6 +321,11 @@ type WaysRootContextType = {
   targetLocale: string;
   defaultLocale: string;
   baseLocale?: string;
+  apiUrl?: string;
+  cacheTtl?: number;
+  fetcher?: typeof fetch;
+  requestOrigin?: string;
+  requestInitDecorator?: _RequestInitDecorator;
   persistLocaleCookie: boolean;
   acceptedLocales: string[];
   translationFallbackConfig: TranslationFallbackConfig;
@@ -355,6 +360,11 @@ const WaysRootContext = createContext<WaysRootContextType>({
   targetLocale: 'en-GB',
   defaultLocale: 'en-GB',
   baseLocale: undefined,
+  apiUrl: undefined,
+  cacheTtl: undefined,
+  fetcher: undefined,
+  requestOrigin: undefined,
+  requestInitDecorator: undefined,
   persistLocaleCookie: true,
   acceptedLocales: [],
   translationFallbackConfig: DEFAULT_TRANSLATION_FALLBACK_CONFIG,
@@ -670,6 +680,11 @@ const WaysRoot: React.FC<{
         targetLocale,
         defaultLocale,
         baseLocale,
+        apiUrl: _apiUrl,
+        cacheTtl,
+        fetcher,
+        requestOrigin,
+        requestInitDecorator,
         persistLocaleCookie,
         acceptedLocales: acceptedLocalesFromStore,
         translationFallbackConfig: translationFallbackConfigFromStore,
@@ -748,6 +763,7 @@ const WaysProvider: React.FC<WaysProviderProps> = ({
 };
 
 export const Ways: React.FC<WaysProps> = (props) => {
+  const parentRootContext = useContext(WaysRootContext);
   const hasApiKey = 'apiKey' in props;
   const hasContext = 'context' in props;
 
@@ -774,6 +790,15 @@ export const Ways: React.FC<WaysProps> = (props) => {
       acceptedLocales,
       context,
     } = props;
+    const resolvedApiUrl = _apiUrl ?? parentRootContext.apiUrl;
+    const resolvedCacheTtl = cacheTtl ?? parentRootContext.cacheTtl;
+    const resolvedFetcher = fetcher ?? parentRootContext.fetcher;
+    const resolvedRequestOrigin =
+      requestOrigin ||
+      parentRootContext.requestOrigin ||
+      (typeof window !== 'undefined' ? window.location.origin : undefined);
+    const resolvedRequestInitDecorator =
+      _requestInitDecorator ?? parentRootContext.requestInitDecorator;
 
     const defaultLocale = locale || baseLocale || 'en-GB';
     const shouldResetServerCache = isTestEnvironment();
@@ -797,11 +822,11 @@ export const Ways: React.FC<WaysProps> = (props) => {
     if (!engineRef.current) {
       engineRef.current = create18waysEngine({
         apiKey,
-        apiUrl: _apiUrl,
-        fetcher,
-        cacheTtlSeconds: cacheTtl,
-        origin: requestOrigin,
-        _requestInitDecorator,
+        apiUrl: resolvedApiUrl,
+        fetcher: resolvedFetcher,
+        cacheTtlSeconds: resolvedCacheTtl,
+        origin: resolvedRequestOrigin,
+        _requestInitDecorator: resolvedRequestInitDecorator,
         baseLocale: baseLocale || defaultLocale,
         locale: locale || defaultLocale,
         context: contextPath,
@@ -820,11 +845,11 @@ export const Ways: React.FC<WaysProps> = (props) => {
             defaultLocale={defaultLocale}
             baseLocale={baseLocale}
             persistLocaleCookie={persistLocaleCookie}
-            cacheTtl={cacheTtl}
-            fetcher={fetcher}
-            _apiUrl={_apiUrl}
-            requestOrigin={requestOrigin}
-            requestInitDecorator={_requestInitDecorator}
+            cacheTtl={resolvedCacheTtl}
+            fetcher={resolvedFetcher}
+            _apiUrl={resolvedApiUrl}
+            requestOrigin={resolvedRequestOrigin}
+            requestInitDecorator={resolvedRequestInitDecorator}
             acceptedLocales={acceptedLocales}
             messageFormatter={messageFormatter}
             suspenseTimeoutMs={suspenseTimeoutMs}
