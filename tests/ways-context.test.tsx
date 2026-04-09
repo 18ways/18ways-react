@@ -228,6 +228,84 @@ describe('WaysRoot - Context Nesting', () => {
     );
   });
 
+  it('still translates a nested foreign-authored block back into the root base locale', async () => {
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'en-GB',
+          key: 'test',
+          textHash: '["Bonjour tout le monde","test"]',
+          translation: 'Hello everyone',
+        },
+      ],
+      errors: [],
+    });
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
+        <Ways context="test" baseLocale="fr-FR">
+          <T>Bonjour tout le monde</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(await screen.findByText('Hello everyone')).toBeInTheDocument();
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          baseLocale: 'fr-FR',
+          targetLocale: 'en-GB',
+          key: 'test',
+          text: 'Bonjour tout le monde',
+        }),
+      ]),
+      { origin: 'http://localhost:3000' }
+    );
+  });
+
+  it('preserves an unknown baseLocale marker instead of collapsing it to the root base locale', async () => {
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'en-GB',
+          key: 'test',
+          textHash: '["Ciao, ci vediamo tra dieci minuti.","test"]',
+          translation: 'Hi, see you in ten minutes.',
+        },
+      ],
+      errors: [],
+    });
+
+    render(
+      <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
+        <Ways context="test" baseLocale="?">
+          <T>Ciao, ci vediamo tra dieci minuti.</T>
+        </Ways>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(await screen.findByText('Hi, see you in ten minutes.')).toBeInTheDocument();
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          baseLocale: '?',
+          targetLocale: 'en-GB',
+          key: 'test',
+          text: 'Ciao, ci vediamo tra dieci minuti.',
+        }),
+      ]),
+      { origin: 'http://localhost:3000' }
+    );
+  });
+
   it('supports a nested WaysRoot with its own selected locale session', async () => {
     vi.mocked(fetchTranslations).mockImplementation(async (entries) => ({
       data: entries.map((entry) => ({
