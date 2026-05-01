@@ -204,7 +204,7 @@ export const clearDomSnapshotTranslationOverridesForTesting = (): void => {
 };
 
 const simpleCssEscape = (value: string): string =>
-  value.replace(/([\\"'#.:\[\](),>+~*^$|=\s])/g, '\\$1');
+  value.replace(/([\\"'#.:[\](),>+~*^$|=\s])/g, '\\$1');
 
 const buildSelector = (element: Element): string => {
   const parts: string[] = [];
