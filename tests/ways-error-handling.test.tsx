@@ -125,9 +125,6 @@ describe('WaysRoot - Error Handling', () => {
     consoleWarnSpy.mockRestore();
     consoleErrorSpy.mockRestore();
   });
-
-  // Removed: malformed API response test - not detecting warnings correctly
-
   it('should cache errors for 60 seconds', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -226,10 +223,4 @@ describe('WaysRoot - Error Handling', () => {
 
     expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
   });
-
-  // Removed: partial translation failures test - timing issues
-
-  // Removed: this test expects error behavior that doesn't exist
-  // The implementation doesn't throw errors for missing locale
-  // Removed: timeout test - not much value and requires complex timer setup
 });

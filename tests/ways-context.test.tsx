@@ -76,7 +76,7 @@ describe('WaysRoot - Context Nesting', () => {
     expect(context2).toHaveTextContent('Contexto 2');
   });
 
-  it('should handle context without key', async () => {
+  it('uses the enclosing context when T has no local context prop', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {

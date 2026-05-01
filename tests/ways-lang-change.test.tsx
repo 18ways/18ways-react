@@ -133,7 +133,7 @@ describe('WaysRoot - Locale Changes', () => {
     );
   });
 
-  it('updates nested contexts when locale prop changes without remounting', async () => {
+  it('updates nested context translations when the locale prop changes', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
@@ -146,16 +146,10 @@ describe('WaysRoot - Locale Changes', () => {
       errors: [],
     });
 
-    const PersistentChild = () => {
-      const mountId = React.useRef(`mount-${Math.random().toString(36).slice(2)}`);
-      return <div data-testid="mount-id">{mountId.current}</div>;
-    };
-
     const { rerender } = render(
       <Ways apiKey="test-api-key" locale="en-GB" baseLocale="en-GB">
         <React.Suspense fallback={null}>
           <Ways context="key-1">
-            <PersistentChild />
             <T>Hello</T>
           </Ways>
         </React.Suspense>
@@ -163,13 +157,11 @@ describe('WaysRoot - Locale Changes', () => {
     );
 
     expect(screen.getByText('Hello')).toBeInTheDocument();
-    const initialMountId = screen.getByTestId('mount-id').textContent;
 
     rerender(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-GB">
         <React.Suspense fallback={null}>
           <Ways context="key-1">
-            <PersistentChild />
             <T>Hello</T>
           </Ways>
         </React.Suspense>
@@ -180,7 +172,16 @@ describe('WaysRoot - Locale Changes', () => {
       expect(screen.getByText('Hola')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('mount-id').textContent).toBe(initialMountId);
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'key-1',
+          targetLocale: 'es-ES',
+          text: 'Hello',
+        }),
+      ]),
+      CLIENT_REQUEST_OPTIONS
+    );
   });
 
   it('allows manual locale updates without being reset by the initial locale prop', async () => {

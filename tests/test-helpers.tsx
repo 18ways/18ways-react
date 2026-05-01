@@ -1,33 +1,8 @@
 import { vi } from 'vitest';
 import React from 'react';
-import { render, RenderResult, act } from '@testing-library/react';
+import { render, RenderResult } from '@testing-library/react';
 import { Ways } from '../index';
-import { fetchTranslations } from '@18ways/core/common';
-import { clearQueueForTests, resetTestRuntimeState } from '../testing';
-
-/**
- * Mock fetchTranslations with provided translations
- */
-export function mockTranslations(translations: Record<string, Record<string, string>>) {
-  const mockFetch = fetchTranslations as ReturnType<typeof vi.fn>;
-  mockFetch.mockResolvedValue(translations);
-}
-
-/**
- * Mock fetchTranslations with API response format
- */
-export function mockTranslationsAPI(
-  data: Array<{
-    locale: string;
-    key: string;
-    textHash: string;
-    translation: string;
-  }>,
-  errors: any[] = []
-) {
-  const mockFetch = fetchTranslations as ReturnType<typeof vi.fn>;
-  mockFetch.mockResolvedValue({ data, errors });
-}
+import { resetTestRuntimeState } from '../testing';
 
 /**
  * Render component with Ways providers
@@ -88,48 +63,4 @@ export function clearWaysState() {
   resetTestRuntimeState();
   delete window.__18WAYS_TRANSLATION_STORE__;
   vi.clearAllMocks();
-}
-
-/**
- * Create a mock translation response for testing
- */
-export function createMockTranslation(
-  locale: string,
-  key: string,
-  translation: string,
-  contextKey?: string
-) {
-  const textHash = contextKey ? `["${key}","${contextKey}"]` : `["${key}"]`;
-
-  return {
-    locale,
-    key: contextKey || '',
-    textHash,
-    translation,
-  };
-}
-
-/**
- * Create translations for multiple locales
- */
-export function createMultiLocaleTranslations(
-  translations: Record<string, Record<string, string>>
-) {
-  return Object.entries(translations).reduce(
-    (acc, [locale, trans]) => {
-      acc[locale] = trans;
-      return acc;
-    },
-    {} as Record<string, Record<string, string>>
-  );
-}
-
-/**
- * Wait for translations to load
- */
-export async function waitForTranslations() {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await act(async () => {
-    await clearQueueForTests();
-  });
 }

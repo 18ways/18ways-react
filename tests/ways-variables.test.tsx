@@ -30,36 +30,6 @@ describe('WaysRoot - Variable Substitution', () => {
     vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
   });
 
-  it('should handle simple variable substitution', async () => {
-    vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [
-        {
-          locale: 'es-ES',
-          key: 'test-key',
-          textHash: '["Hello {name}","test-key"]',
-          translation: 'Hola {name}',
-        },
-      ],
-      errors: [],
-    });
-
-    render(
-      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T vars={{ name: 'John' }}>{'Hello {name}'}</T>
-        </Ways>
-      </Ways>
-    );
-
-    await act(async () => {
-      await clearQueueForTests();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Hola John')).toBeInTheDocument();
-    });
-  });
-
   it('should handle multiple variables', async () => {
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
@@ -92,9 +62,10 @@ describe('WaysRoot - Variable Substitution', () => {
     });
   });
 
-  // Removed: nested object variables are not supported by the implementation
-
-  it('should preserve placeholders for undefined variables', async () => {
+  it.each([
+    ['undefined variables', { name: undefined }, 'Hola {name}'],
+    ['missing vars prop', undefined, 'Hola {name}'],
+  ])('should preserve placeholders for %s', async (_caseName, vars, expectedText) => {
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
@@ -110,7 +81,7 @@ describe('WaysRoot - Variable Substitution', () => {
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
         <Ways context="test-key">
-          <T vars={{ name: undefined }}>{'Hello {name}'}</T>
+          <T vars={vars}>{'Hello {name}'}</T>
         </Ways>
       </Ways>
     );
@@ -120,18 +91,35 @@ describe('WaysRoot - Variable Substitution', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Hola {name}')).toBeInTheDocument();
+      expect(screen.getByText(expectedText)).toBeInTheDocument();
     });
   });
 
-  it('should handle null variables', async () => {
+  it.each([
+    ['null', { value: null }, 'Value is {value}', 'El valor es {value}', 'El valor es null'],
+    [
+      'number',
+      { count: 42 },
+      'You have {count} items',
+      'Tienes {count} artículos',
+      'Tienes 42 artículos',
+    ],
+    ['boolean', { active: true }, 'Status: {active}', 'Estado: {active}', 'Estado: true'],
+    [
+      'array',
+      { items: ['apple', 'banana', 'orange'] },
+      'Items: {items}',
+      'Artículos: {items}',
+      'Artículos: apple,banana,orange',
+    ],
+  ])('should stringify %s variables', async (_caseName, vars, sourceText, translatedText, expectedText) => {
     vi.mocked(fetchTranslations).mockResolvedValue({
       data: [
         {
           locale: 'es-ES',
           key: 'test-key',
-          textHash: '["Value is {value}","test-key"]',
-          translation: 'El valor es {value}',
+          textHash: JSON.stringify([sourceText, 'test-key']),
+          translation: translatedText,
         },
       ],
       errors: [],
@@ -140,7 +128,7 @@ describe('WaysRoot - Variable Substitution', () => {
     render(
       <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
         <Ways context="test-key">
-          <T vars={{ value: null }}>{'Value is {value}'}</T>
+          <T vars={vars}>{sourceText}</T>
         </Ways>
       </Ways>
     );
@@ -150,131 +138,7 @@ describe('WaysRoot - Variable Substitution', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('El valor es null')).toBeInTheDocument();
-    });
-  });
-
-  it('should handle number variables', async () => {
-    vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [
-        {
-          locale: 'es-ES',
-          key: 'test-key',
-          textHash: '["You have {count} items","test-key"]',
-          translation: 'Tienes {count} artículos',
-        },
-      ],
-      errors: [],
-    });
-
-    render(
-      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T vars={{ count: 42 }}>{'You have {count} items'}</T>
-        </Ways>
-      </Ways>
-    );
-
-    await act(async () => {
-      await clearQueueForTests();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Tienes 42 artículos')).toBeInTheDocument();
-    });
-  });
-
-  it('should handle boolean variables', async () => {
-    vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [
-        {
-          locale: 'es-ES',
-          key: 'test-key',
-          textHash: '["Status: {active}","test-key"]',
-          translation: 'Estado: {active}',
-        },
-      ],
-      errors: [],
-    });
-
-    render(
-      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T vars={{ active: true }}>{'Status: {active}'}</T>
-        </Ways>
-      </Ways>
-    );
-
-    await act(async () => {
-      await clearQueueForTests();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Estado: true')).toBeInTheDocument();
-    });
-  });
-
-  // Removed: special character variable test - timing issues
-
-  it('should handle arrays as variables', async () => {
-    vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [
-        {
-          locale: 'es-ES',
-          key: 'test-key',
-          textHash: '["Items: {items}","test-key"]',
-          translation: 'Artículos: {items}',
-        },
-      ],
-      errors: [],
-    });
-
-    render(
-      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T vars={{ items: ['apple', 'banana', 'orange'] }}>{'Items: {items}'}</T>
-        </Ways>
-      </Ways>
-    );
-
-    await act(async () => {
-      await clearQueueForTests();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Artículos: apple,banana,orange')).toBeInTheDocument();
-    });
-  });
-
-  // Removed: empty string variable test - timing issues
-
-  it('should preserve variable placeholders when vars not provided', async () => {
-    vi.mocked(fetchTranslations).mockResolvedValue({
-      data: [
-        {
-          locale: 'es-ES',
-          key: 'test-key',
-          textHash: '["Hello {name}","test-key"]',
-          translation: 'Hola {name}',
-        },
-      ],
-      errors: [],
-    });
-
-    render(
-      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
-        <Ways context="test-key">
-          <T>{'Hello {name}'}</T>
-        </Ways>
-      </Ways>
-    );
-
-    await act(async () => {
-      await clearQueueForTests();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Hola {name}')).toBeInTheDocument();
+      expect(screen.getByText(expectedText)).toBeInTheDocument();
     });
   });
 });
