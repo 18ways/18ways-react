@@ -10,7 +10,6 @@ const NEUTRAL_500 = '#61766d';
 const NEUTRAL_600 = '#495b54';
 const NEUTRAL_950 = '#052015';
 const BRAND_50 = '#f1faf5';
-const BRAND_100 = '#dbf0e3';
 const BRAND_200 = '#b8e0ca';
 const BRAND_400 = '#4dbb88';
 const BRAND_500 = '#119955';
