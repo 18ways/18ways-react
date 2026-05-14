@@ -65,6 +65,7 @@ export interface InternalLanguageSwitcherProps extends LanguageSwitcherProps {
   rootLocale: string;
   hasRootStore: boolean;
   isTranslationLoading: boolean;
+  isTranslationDisabled?: boolean;
   onRootLocaleChange: (locale: string) => void;
   languages: Language[];
 }
@@ -661,6 +662,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   rootLocale,
   hasRootStore,
   isTranslationLoading,
+  isTranslationDisabled = false,
   onRootLocaleChange,
   languages,
 }) => {
@@ -948,6 +950,11 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
 
   const handleLanguageChange = useCallback(
     (newLocale: string) => {
+      if (isTranslationDisabled) {
+        setIsOpen(false);
+        return;
+      }
+
       if (newLocale === currentLocale) {
         setIsOpen(false);
         return;
@@ -968,7 +975,13 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         setLocaleCookie(newLocale);
       }
     },
-    [applyLocale, clearPendingChangeTimeout, currentLocale, persistLocaleCookie]
+    [
+      applyLocale,
+      clearPendingChangeTimeout,
+      currentLocale,
+      isTranslationDisabled,
+      persistLocaleCookie,
+    ]
   );
 
   const commitByIndex = useCallback(
@@ -1016,7 +1029,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   );
 
   const handleButtonKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (isChanging || isTranslationLoading) {
+    if (isChanging || isTranslationLoading || isTranslationDisabled) {
       return;
     }
 
@@ -1171,6 +1184,7 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
   const searchPlaceholder = internalT(currentLocale, 'searchLanguagesPlaceholder');
   const noMatchingLanguagesLabel = internalT(currentLocale, 'noMatchingLanguages');
   const isLocaleChangePending = isChanging || isTranslationLoading;
+  const isSelectorDisabled = isLocaleChangePending || isTranslationDisabled;
   const activeOptionId =
     activeIndex >= 0 && activeIndex < visibleLanguages.length
       ? optionIdFor(listboxId, visibleLanguages[activeIndex].code)
@@ -1194,21 +1208,21 @@ export const InternalLanguageSwitcher: React.FC<InternalLanguageSwitcherProps> =
         <button
           ref={buttonRef}
           type="button"
-          onClick={() => !isLocaleChangePending && setIsOpen(!isOpen)}
+          onClick={() => !isSelectorDisabled && setIsOpen(!isOpen)}
           onMouseEnter={() => setIsTriggerHovered(true)}
           onMouseLeave={() => setIsTriggerHovered(false)}
           onKeyDown={handleButtonKeyDown}
-          disabled={isLocaleChangePending}
+          disabled={isSelectorDisabled}
           className={joinClassNames(
             classNames?.button,
-            isTriggerHovered && !isLocaleChangePending ? classNames?.buttonHover : undefined,
+            isTriggerHovered && !isSelectorDisabled ? classNames?.buttonHover : undefined,
             isLocaleChangePending ? classNames?.buttonChanging : undefined
           )}
           style={mergeStyle(
             'button',
             styles,
             unstyled,
-            isTriggerHovered && !isLocaleChangePending
+            isTriggerHovered && !isSelectorDisabled
               ? mergeStyle('buttonHover', styles, unstyled)
               : null,
             isLocaleChangePending ? mergeStyle('buttonChanging', styles, unstyled) : null

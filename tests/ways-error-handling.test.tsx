@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import { Ways, T } from '../index';
+import { Ways, T, LanguageSwitcher } from '../index';
 import { fetchTranslations, fetchSeed } from '@18ways/core/common';
 import { clearQueueForTests, resetTestRuntimeState } from '../testing';
 
@@ -25,6 +25,7 @@ vi.mock('@18ways/core/common', async () => {
 
 describe('WaysRoot - Error Handling', () => {
   beforeEach(() => {
+    resetTestRuntimeState();
     delete window.__18WAYS_TRANSLATION_STORE__;
     vi.clearAllMocks();
   });
@@ -123,6 +124,132 @@ describe('WaysRoot - Error Handling', () => {
     });
 
     consoleWarnSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('shuts down translations after a seed billing block', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    vi.mocked(fetchSeed).mockResolvedValue({
+      data: {},
+      errors: [{ reason: 'Request would exceed your Free plan limit of 1000 words.' }],
+      billingBlocked: true,
+      billingBlockedMessage: 'Request would exceed your Free plan limit of 1000 words.',
+    });
+    vi.mocked(fetchTranslations).mockResolvedValue({ data: [], errors: [] });
+
+    const { rerender } = render(
+      <Ways
+        apiKey="test-api-key"
+        locale="es-ES"
+        baseLocale="en-US"
+        acceptedLocales={['en-US', 'es-ES']}
+      >
+        <React.Suspense fallback={null}>
+          <Ways context="billing-key">
+            <LanguageSwitcher />
+            <T>Hello Billing</T>
+          </Ways>
+        </React.Suspense>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(screen.getByText('Hello Billing')).toBeInTheDocument();
+    expect(vi.mocked(fetchSeed)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy.mock.calls[0]?.[0]).toContain('Translation has been disabled');
+    expect(document.querySelector('button[aria-haspopup="listbox"]')).toBeDisabled();
+
+    rerender(
+      <Ways
+        apiKey="test-api-key"
+        locale="es-ES"
+        baseLocale="en-US"
+        acceptedLocales={['en-US', 'es-ES']}
+      >
+        <React.Suspense fallback={null}>
+          <Ways context="billing-key">
+            <LanguageSwitcher />
+            <T>Hello Billing</T>
+            <T>Another string</T>
+          </Ways>
+        </React.Suspense>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(document.body).toHaveTextContent('Another string');
+    expect(vi.mocked(fetchSeed)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchTranslations)).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('shuts down translations after a translate billing block', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [],
+      errors: [
+        {
+          locale: 'es-ES',
+          key: 'billing-key',
+          textHash: '["Translate Billing","billing-key"]',
+        },
+      ],
+      billingBlocked: true,
+      billingBlockedMessage: 'Request requires additional word credits.',
+    });
+
+    const { rerender } = render(
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+        <React.Suspense fallback={null}>
+          <Ways context="billing-key">
+            <T>Translate Billing</T>
+          </Ways>
+        </React.Suspense>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(screen.getByText('Translate Billing')).toBeInTheDocument();
+    expect(vi.mocked(fetchSeed)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+        <React.Suspense fallback={null}>
+          <Ways context="billing-key">
+            <T>Translate Billing</T>
+            <T>After block</T>
+          </Ways>
+        </React.Suspense>
+      </Ways>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(document.body).toHaveTextContent('After block');
+    expect(vi.mocked(fetchSeed)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
     consoleErrorSpy.mockRestore();
   });
   it('should cache errors for 60 seconds', async () => {

@@ -56,7 +56,11 @@ import {
   subscribeDomSnapshotOverrideVersion,
 } from './dom-snapshots';
 
-export { fetchAcceptedLocales, fetchConfig, resolveOrigin } from '@18ways/core/common';
+export {
+  fetchAcceptedLocales,
+  fetchConfig,
+  resolveOrigin,
+} from '@18ways/core/common';
 export type { Language, Translations } from '@18ways/core/common';
 
 export type MessageFormatterFn = (params: {
@@ -117,7 +121,7 @@ const getAcceptedLocalesFunctionId = (value: object | undefined): number => {
   return acceptedLocalesFunctionIdCounter;
 };
 
-type WaysRootSnapshot = Pick<TranslationStoreState, 'locale' | 'config'>;
+type WaysRootSnapshot = Pick<TranslationStoreState, 'locale' | 'config' | 'billing'>;
 
 const buildRuntimeConfigServerResolutionKey = (input: {
   apiKey: string;
@@ -420,6 +424,7 @@ const WaysRoot: React.FC<{
         acceptedLocales: state.config.acceptedLocales,
         translationFallback: state.config.translationFallback,
       },
+      billing: state.billing,
     });
     const existingSnapshot = rootSnapshotRef.current;
     if (existingSnapshot?.key === snapshotKey) {
@@ -429,6 +434,7 @@ const WaysRoot: React.FC<{
     const nextSnapshot: WaysRootSnapshot = {
       locale: state.locale,
       config: state.config,
+      billing: state.billing,
     };
     rootSnapshotRef.current = {
       key: snapshotKey,
@@ -1050,6 +1056,10 @@ const EMPTY_TRANSLATION_STORE_STATE: TranslationStoreState = {
     acceptedLocales: [],
     translationFallback: DEFAULT_TRANSLATION_FALLBACK_CONFIG,
   },
+  billing: {
+    status: 'ok',
+    message: null,
+  },
 };
 const getEmptyTranslationStoreState = () => EMPTY_TRANSLATION_STORE_STATE;
 let translationMountHookIdCounter = 0;
@@ -1569,6 +1579,9 @@ export const useSetCurrentLocale = (): ((nextLocale: string) => void) => {
       if (!nextLocale) {
         return;
       }
+      if (rootContext.store.isBillingBlocked()) {
+        return;
+      }
 
       startTransition(() => {
         rootContext.setLocale(nextLocale);
@@ -1597,6 +1610,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
     rootContext.store !== emptyStore ? rootContext.store.getState : getEmptyTranslationStoreState
   );
   const rootStoreState = rootContext.store.getState();
+  const isBillingBlocked = rootStoreState.billing.status === 'payment_required';
   const currentLocale =
     props.currentLocale || rootStoreState.locale.selected || rootContext.defaultLocale || 'en-GB';
   const languages = useMemo(() => {
@@ -1622,7 +1636,8 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
     Boolean(rootStoreState.locale.settled) &&
     rootStoreState.locale.settled !== rootStoreState.locale.selected;
   const isTranslationLoading =
-    hasPendingControlledLocaleSync || hasPendingLocaleTransition || rootContext.store.isLoading();
+    !isBillingBlocked &&
+    (hasPendingControlledLocaleSync || hasPendingLocaleTransition || rootContext.store.isLoading());
 
   return (
     <InternalLanguageSwitcher
@@ -1631,6 +1646,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = (props) => {
       rootLocale={rootStoreState.locale.selected}
       hasRootStore={rootContext.store !== emptyStore}
       isTranslationLoading={isTranslationLoading}
+      isTranslationDisabled={isBillingBlocked}
       onRootLocaleChange={rootContext.setLocale}
       languages={languages}
     />

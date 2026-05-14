@@ -1,6 +1,7 @@
 import type {} from './global';
 import { isTestEnvironment } from './runtime-env';
 import { clearRuntimeNetworkEventsForTesting } from '@18ways/core/common';
+import { resetTranslationStoreRuntimeStateForTesting } from '@18ways/core/translation-store';
 
 const clearQueueFns = new Set<() => Promise<void>>();
 const runtimeResetFns = new Set<() => void>();
@@ -29,6 +30,7 @@ export const resetTestRuntimeState = (): void => {
   }
 
   clearRuntimeNetworkEventsForTesting();
+  resetTranslationStoreRuntimeStateForTesting();
 
   runtimeResetFns.forEach((resetRuntimeState) => {
     resetRuntimeState();
