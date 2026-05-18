@@ -138,6 +138,43 @@ describe('WaysRoot - Rich Text', () => {
     expectSingleTranslationRequest(sourceText);
   });
 
+  it('renders rich text with a literal JSX-like component mention', async () => {
+    const sourceText = "<bold>Just add</bold> a &lt;T&gt; and you're done.";
+    const translatedText = '<bold>Basta adicionar</bold> um &lt;T&gt; e fica feito.';
+
+    vi.mocked(fetchTranslations).mockResolvedValue({
+      data: [
+        {
+          locale: 'es-ES',
+          key: 'literal-jsx-component-mention',
+          textHash: JSON.stringify([sourceText, 'literal-jsx-component-mention']),
+          translation: translatedText,
+        },
+      ],
+      errors: [],
+    });
+
+    render(
+      <RichTestWrapper context="literal-jsx-component-mention">
+        <T>
+          <b>Just add</b> a {'<T>'} and you're done.
+        </T>
+      </RichTestWrapper>
+    );
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    const output = await screen.findByTestId('output');
+
+    expect(output.textContent).toBe('Basta adicionar um <T> e fica feito.');
+    expect(normalizeHtml(output.innerHTML)).toBe(
+      '<b>Basta adicionar</b> um &lt;T&gt; e fica feito.'
+    );
+    expectSingleTranslationRequest(sourceText);
+  });
+
   it('renders void intrinsic elements without passing children back into React', async () => {
     const sourceText = 'Line one.<br />Line two.';
     const translatedText = 'Linea dos.<br />Linea uno.';
