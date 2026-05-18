@@ -252,7 +252,7 @@ describe('WaysRoot - Error Handling', () => {
 
     consoleErrorSpy.mockRestore();
   });
-  it('should cache errors for 60 seconds', async () => {
+  it('should suppress immediate retries after translate failures', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     vi.mocked(fetchTranslations).mockResolvedValue({
@@ -302,6 +302,60 @@ describe('WaysRoot - Error Handling', () => {
       expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
     });
 
+    consoleWarnSpy.mockRestore();
+  });
+
+  it('should not immediately retry when a translate response acknowledges the request without a translation', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    vi.mocked(fetchSeed).mockResolvedValue({ data: {} });
+    vi.mocked(fetchTranslations)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            locale: 'es-ES',
+            key: 'null-translation-key',
+            textHash: '["Null Translation","null-translation-key"]',
+            translationId: 'translation-null-1',
+            translation: null,
+          },
+        ],
+        errors: [],
+      })
+      .mockResolvedValue({
+        data: [],
+        errors: [
+          {
+            locale: 'es-ES',
+            key: 'null-translation-key',
+            textHash: '["Null Translation","null-translation-key"]',
+          },
+        ],
+      });
+
+    const tree = (
+      <Ways apiKey="test-api-key" locale="es-ES" baseLocale="en-US">
+        <React.Suspense fallback={null}>
+          <Ways context="null-translation-key">
+            <T>Null Translation</T>
+          </Ways>
+        </React.Suspense>
+      </Ways>
+    );
+    const { rerender } = render(tree);
+
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
+
+    rerender(tree);
+    await act(async () => {
+      await clearQueueForTests();
+    });
+
+    expect(vi.mocked(fetchTranslations)).toHaveBeenCalledTimes(1);
     consoleWarnSpy.mockRestore();
   });
 
